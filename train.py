@@ -48,5 +48,6 @@ while not done:
     obs, reward, terminated, truncated, _ = eval_env.step(action)
     done = terminated or truncated
     frames.append(eval_env.render())
+eval_env.close()  # https://github.com/google-deepmind/mujoco/issues/1186
 
 imageio.mimsave(VIDEO_DIR / "trained_agent.mp4", frames, fps=20)
