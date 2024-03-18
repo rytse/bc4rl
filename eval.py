@@ -2,6 +2,7 @@ from pathlib import Path
 
 import gymnasium as gym
 import imageio
+import torch
 from stable_baselines3 import SAC
 from stable_baselines3.common.monitor import Monitor
 
@@ -21,7 +22,12 @@ while not done:
     action, _ = model.predict(obs, deterministic=True)
     obs, reward, terminated, truncated, _ = eval_env.step(action)
     done = terminated or truncated
+
+    obs_tensor = torch.tensor(obs).unsqueeze(0)
+    obs_z = model.actor.extract_features(obs_tensor, model.actor.features_extractor)
+
     frames.append(eval_env.render())
+
 eval_env.close()  # https://github.com/google-deepmind/mujoco/issues/1186
 
 imageio.mimsave(VIDEO_DIR / "evaluated_agent.mp4", frames, fps=20)
