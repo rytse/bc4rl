@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from stable_baselines3.common.buffers import ReplayBuffer
+from stable_baselines3.common.preprocessing import preprocess_obs
 
 
 def bisim_loss(
@@ -27,8 +28,20 @@ def bisim_loss(
     """
     replay_samples = replay_buffer.sample(n_samples)
 
-    zs = encoder(replay_samples.observations)  # (n_samples, z_dim)
-    next_zs = encoder(replay_samples.next_observations)  # (n_samples, z_dim)
+    obs = replay_samples.observations
+    next_obs = replay_samples.next_observations
+
+    pre_obs = preprocess_obs(
+        obs,
+        replay_buffer.observation_space,  # TODO check if we should normalize images
+    )
+    pre_next = preprocess_obs(
+        next_obs,
+        replay_buffer.observation_space,  # TODO check if we should normalize images
+    )
+
+    zs = encoder(pre_obs)  # (n_samples, z_dim)
+    next_zs = encoder(pre_next)  # (n_samples, z_dim)
     critique = critic(next_zs)  # (n_samples, 1)
 
     zs_i = zs[:, None, :]
