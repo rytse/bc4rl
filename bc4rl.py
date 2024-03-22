@@ -60,3 +60,22 @@ def bisim_loss(
     bisim_distance = (1 - c) * reward_distance + c / K * critique_distance
 
     return F.mse_loss(encoded_distance, bisim_distance)
+
+
+def gradient_penalty(model: nn.Module, data: torch.Tensor, K: float) -> torch.Tensor:
+    """
+    Computes the gradient penalty for the critic, where the target norm is K.
+
+    :param model: (nn.Module) critic model
+    :param data: (torch.Tensor) input data
+    :param K: (float) target gradient norm
+
+    :return: (torch.Tensor) gradient penalty
+    """
+    x = data.clone().detach().requires_grad_(True)
+    y = model(x)
+    grad = torch.autograd.grad(
+        y, x, grad_outputs=torch.ones_like(y), create_graph=True
+    )[0]
+
+    return (grad.norm(2, dim=1) - K).pow(2).mean()

@@ -2,9 +2,11 @@ from pathlib import Path
 
 import gymnasium as gym
 import imageio
+import torch.nn as nn
 from stable_baselines3 import SAC
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.sac.policies import MlpPolicy
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -32,7 +34,16 @@ eval_callback = EvalCallback(
 )
 
 # Train the agent
-model = SAC(policy="MlpPolicy", env=env, device="cuda:1")
+model = SAC(
+    policy=MlpPolicy,
+    env=env,
+    policy_kwargs={
+        "net_arch": [256, 256],
+        "activation_fn": nn.SiLU,
+        "share_features_extractor": True,
+    },
+    device="cuda:1",
+)
 model.learn(
     total_timesteps=100_000,
     callback=[checkpoint_callback, eval_callback],
