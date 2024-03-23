@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple, Type, Union
 
@@ -145,6 +146,7 @@ class BSAC(SAC):
         bs_critic_losses, encoder_losses, actor_losses, critic_losses = [], [], [], []
 
         for gradient_step in range(gradient_steps):
+            start_train_step = time.time()
             # Sample replay buffer
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
 
@@ -180,14 +182,18 @@ class BSAC(SAC):
 
             # Optimize the bisim critic
             assert self.replay_buffer is not None
+            preprocess_times, bisim_loss_times, grad_penalty_times = [], [], []
+            start_optim_critic = time.time()
             for _ in range(self.bisim_config.critic_training_steps):
+                start_preprocess = time.time()
                 samples = preprocess_obs(
-                    self.replay_buffer.sample(
-                        self.bisim_config.batch_size
-                    ).observations,
+                    replay_data.observations,
                     self.replay_buffer.observation_space,
                 )
+                preprocess_times.append(time.time() - start_preprocess)
+
                 assert isinstance(samples, torch.Tensor)
+                start_bisim_loss = time.time()
                 bs_loss = bisim_loss(
                     replay_data,
                     self.replay_buffer.observation_space,
@@ -196,25 +202,34 @@ class BSAC(SAC):
                     self.bisim_config.C,
                     self.bisim_config.K,
                 )
+                bisim_loss_times.append(time.time() - start_bisim_loss)
+
+                start_grad_penalty = time.time()
                 grad_loss = gradient_penalty(
                     self.policy.actor.features_extractor,
                     self.bisim_critic,
                     samples,
                     self.bisim_config.K,
                 )
+                grad_penalty_times.append(time.time() - start_grad_penalty)
                 critic_loss = bs_loss + self.bisim_config.grad_penalty * grad_loss
 
                 self.bisim_critic_optimizer.zero_grad()
                 critic_loss.backward()
                 self.bisim_critic_optimizer.step()
                 bs_critic_losses.append(bs_loss.item())
+            print("---")
+            print(f"Preprocess: {np.mean(preprocess_times)}")
+            print(f"Bisim loss: {np.mean(bisim_loss_times)}")
+            print(f"Grad penalty: {np.mean(grad_penalty_times)}")
+            print(f"Total Optim critic: {time.time() - start_optim_critic}")
 
             # Optimize the encoder
+            preprocess_times, bisim_loss_times, grad_penalty_times = [], [], []
+            start_optim_encoder = time.time()
             for _ in range(self.bisim_config.encoder_training_steps):
                 samples = preprocess_obs(
-                    self.replay_buffer.sample(
-                        self.bisim_config.batch_size
-                    ).observations,
+                    replay_data.observations,
                     self.replay_buffer.observation_space,
                 )
                 assert isinstance(samples, torch.Tensor)
@@ -231,6 +246,8 @@ class BSAC(SAC):
                 bs_loss.backward()
                 self.encoder_optimizer.step()
                 encoder_losses.append(bs_loss.item())
+            print(f"Total Optim encoder: {time.time() - start_optim_encoder}")
+            print("---")
 
             # Compute the target Q value
             with torch.no_grad():
@@ -292,6 +309,10 @@ class BSAC(SAC):
                 )
                 # Copy running stats, see GH issue #996
                 polyak_update(self.batch_norm_stats, self.batch_norm_stats_target, 1.0)
+
+            print(f"Total train step: {time.time() - start_train_step}")
+            print("---")
+            print("\n\n")
 
         self._n_updates += gradient_steps
 
