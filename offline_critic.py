@@ -78,14 +78,22 @@ for pair_epoch in range(N_PAIR_EPOCHS):
     # Optimize the critic
     print("Optimizing the critic...")
     for step in tqdm(range(N_CRITIC_TRAINING_STEPS)):
-        samples = preprocess_obs(
-            replay_buffer.sample(BATCH_SIZE).observations,
+        replay_data = replay_buffer.sample(BATCH_SIZE)
+        replay_samples = preprocess_obs(
+            replay_data.observations,
             replay_buffer.observation_space,
         )
-        assert isinstance(samples, torch.Tensor)
+        assert isinstance(replay_samples, torch.Tensor)
 
-        bs_loss = bisim_loss(replay_buffer, encoder, critic, C, K, BATCH_SIZE)
-        grad_loss = gradient_penalty(encoder, critic, samples, K)
+        bs_loss = bisim_loss(
+            replay_data,
+            replay_buffer.observation_space,
+            encoder,
+            critic,
+            C,
+            K,
+        )
+        grad_loss = gradient_penalty(encoder, critic, replay_samples, K)
 
         loss = bs_loss + GRAD_PENALTY_WEIGHT * grad_loss
 
@@ -101,12 +109,21 @@ for pair_epoch in range(N_PAIR_EPOCHS):
     # Optimize the encoder
     print("Optimizing the encoder...")
     for step in tqdm(range(N_ENCODER_TRAINING_STEPS)):
-        samples = preprocess_obs(
-            replay_buffer.sample(BATCH_SIZE).observations, env.observation_space
+        replay_data = replay_buffer.sample(BATCH_SIZE)
+        replay_samples = preprocess_obs(
+            replay_data.observations,
+            replay_buffer.observation_space,
         )
-        assert isinstance(samples, torch.Tensor)
+        assert isinstance(replay_samples, torch.Tensor)
 
-        bs_loss = bisim_loss(replay_buffer, encoder, critic, C, K, BATCH_SIZE)
+        bs_loss = bisim_loss(
+            replay_data,
+            replay_buffer.observation_space,
+            encoder,
+            critic,
+            C,
+            K,
+        )
 
         encoder_opt.zero_grad()
         bs_loss.backward()

@@ -1,17 +1,19 @@
+import gymnasium as gym
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.preprocessing import preprocess_obs
+from stable_baselines3.common.type_aliases import ReplayBufferSamples
 
 
 def bisim_loss(
-    replay_buffer: ReplayBuffer,
+    replay_samples: ReplayBufferSamples,
+    observation_space: gym.Space,
     encoder: nn.Module,
     critic: nn.Module,
     c: float,
     K: float,
-    n_samples: int,
 ) -> torch.Tensor:
     """
     Estimates the difference between the L2 norm of the encoded space Z and the bisimulation
@@ -26,19 +28,11 @@ def bisim_loss(
 
     :return: (torch.Tensor) the bisimulation loss
     """
-    replay_samples = replay_buffer.sample(n_samples)
-
     obs = replay_samples.observations
     next_obs = replay_samples.next_observations
 
-    pre_obs = preprocess_obs(
-        obs,
-        replay_buffer.observation_space,  # TODO check if we should normalize images
-    )
-    pre_next = preprocess_obs(
-        next_obs,
-        replay_buffer.observation_space,  # TODO check if we should normalize images
-    )
+    pre_obs = preprocess_obs(obs, observation_space)
+    pre_next = preprocess_obs(next_obs, observation_space)
 
     zs = encoder(pre_obs)  # (n_samples, z_dim)
     next_zs = encoder(pre_next)  # (n_samples, z_dim)

@@ -190,12 +190,12 @@ class BSAC(SAC):
                 )
                 assert isinstance(samples, torch.Tensor)
                 bs_loss = bisim_loss(
-                    self.replay_buffer,
+                    replay_data,
+                    self.replay_buffer.observation_space,
                     self.policy.actor.features_extractor,
                     self.bisim_critic,
                     self.bisim_config.C,
                     self.bisim_config.K,
-                    self.bisim_config.batch_size,
                 )
                 grad_loss = gradient_penalty(
                     self.policy.actor.features_extractor,
@@ -219,12 +219,12 @@ class BSAC(SAC):
                 )
                 assert isinstance(samples, torch.Tensor)
                 bs_loss = bisim_loss(
-                    self.replay_buffer,
+                    replay_data,
+                    self.replay_buffer.observation_space,
                     self.policy.actor.features_extractor,
                     self.bisim_critic,
                     self.bisim_config.C,
                     self.bisim_config.K,
-                    self.bisim_config.batch_size,
                 )
 
                 self.encoder_optimizer.zero_grad()
