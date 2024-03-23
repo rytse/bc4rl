@@ -14,6 +14,15 @@ from bc4rl import bisim_loss, gradient_penalty
 
 LOG_DIR = Path("logs")
 
+N_REPLAY_EPISODES = 1_000
+REPLAY_BUFFER_SIZE = N_REPLAY_EPISODES * 100
+N_CRITIC_TRAINING_STEPS = N_REPLAY_EPISODES
+N_ENCODER_TRAINING_STEPS = N_REPLAY_EPISODES
+N_PAIR_EPOCHS = 10
+BATCH_SIZE = 256
+LEARNING_RATE = 1e-3
+
+C = 0.5
 K = 1.0
 GRAD_PENALTY_WEIGHT = 10.0
 
@@ -23,16 +32,14 @@ env = gym.make("HalfCheetah-v4")
 model_path = LOG_DIR / "best_model.zip"
 model = SAC.load(model_path, env=env, device="cuda:1")
 
-buffer_size = 1_000_000
 replay_buffer = ReplayBuffer(
-    buffer_size, env.observation_space, env.action_space, device=model.device
+    REPLAY_BUFFER_SIZE, env.observation_space, env.action_space, device=model.device
 )
 
 print("Populating the replay buffer...")
 num_episodes = 0
-total_episodes = 1_000
-with tqdm(total=total_episodes) as pbar:
-    while num_episodes < total_episodes:
+with tqdm(total=N_REPLAY_EPISODES) as pbar:
+    while num_episodes < N_REPLAY_EPISODES:
         obs, info = env.reset()
         done = False
         while not done:
@@ -61,30 +68,49 @@ critic = nn.Sequential(
     nn.SiLU(),
     nn.Linear(128, 1),
 ).to(model.device)
-critic_opt = optim.SGD(critic.parameters(), lr=1e-3)
-num_training_steps = 10_000
-batch_size = 256
-for step in tqdm(range(num_training_steps)):
+critic_opt = optim.SGD(critic.parameters(), lr=LEARNING_RATE)
+encoder_opt = optim.SGD(encoder.parameters(), lr=LEARNING_RATE)
 
-    samples = preprocess_obs(
-        replay_buffer.sample(batch_size).observations, env.observation_space
-    )
-    assert isinstance(samples, torch.Tensor)
 
-    bs_loss = bisim_loss(replay_buffer, encoder, critic, 0.5, 1.0, batch_size)
-    grad_loss = gradient_penalty(critic, samples, K)
+for pair_epoch in range(N_PAIR_EPOCHS):
+    print(f"Pair Epoch {pair_epoch + 1} / {N_PAIR_EPOCHS}")
 
-    loss = bs_loss + GRAD_PENALTY_WEIGHT * grad_loss
-
-    critic_opt.zero_grad()
-    loss.backward()
-    critic_opt.step()
-
-    if step % 100 == 0:
-        print(
-            f"Step: {step}, Bisim Loss: {bs_loss.item()}, Grad Loss: {grad_loss.item()}"
+    # Optimize the critic
+    print("Optimizing the critic...")
+    for step in tqdm(range(N_CRITIC_TRAINING_STEPS)):
+        samples = preprocess_obs(
+            replay_buffer.sample(BATCH_SIZE).observations,
+            replay_buffer.observation_space,
         )
+        assert isinstance(samples, torch.Tensor)
 
+        bs_loss = bisim_loss(replay_buffer, encoder, critic, C, K, BATCH_SIZE)
+        grad_loss = gradient_penalty(encoder, critic, samples, K)
 
-final_loss = bisim_loss(replay_buffer, encoder, critic, 0.5, 1.0, 1000)
-print(f"Final loss: {final_loss.item()}")
+        loss = bs_loss + GRAD_PENALTY_WEIGHT * grad_loss
+
+        critic_opt.zero_grad()
+        loss.backward()
+        critic_opt.step()
+
+        if step % 100 == 0:
+            print(
+                f"Step: {step}, Bisim Loss: {bs_loss.item()}, Grad Loss: {grad_loss.item()}"
+            )
+
+    # Optimize the encoder
+    print("Optimizing the encoder...")
+    for step in tqdm(range(N_ENCODER_TRAINING_STEPS)):
+        samples = preprocess_obs(
+            replay_buffer.sample(BATCH_SIZE).observations, env.observation_space
+        )
+        assert isinstance(samples, torch.Tensor)
+
+        bs_loss = bisim_loss(replay_buffer, encoder, critic, C, K, BATCH_SIZE)
+
+        encoder_opt.zero_grad()
+        bs_loss.backward()
+        encoder_opt.step()
+
+        if step % 100 == 0:
+            print(f"Step: {step}, Bisim Loss: {bs_loss.item()}")

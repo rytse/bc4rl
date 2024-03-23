@@ -53,7 +53,7 @@ def bisim_loss(
     rewards_i = replay_samples.rewards[:, None]
     rewards_j = replay_samples.rewards[None, :]
 
-    encoded_distance = torch.norm(zs_i - zs_j, dim=2)  # TODO try L1
+    encoded_distance = torch.norm(zs_i - zs_j, dim=2).unsqueeze(-1)  # TODO try L1
 
     reward_distance = torch.abs(rewards_i - rewards_j)
     critique_distance = torch.abs(critique_i - critique_j)  # TODO check abs?
@@ -62,20 +62,25 @@ def bisim_loss(
     return F.mse_loss(encoded_distance, bisim_distance)
 
 
-def gradient_penalty(model: nn.Module, data: torch.Tensor, K: float) -> torch.Tensor:
+def gradient_penalty(
+    encoder: nn.Module, critic: nn.Module, data: torch.Tensor, K: float
+) -> torch.Tensor:
     """
     Computes the gradient penalty for the critic, where the target norm is K.
 
-    :param model: (nn.Module) critic model
+    :param encoder: (nn.Module) the encoder
+    :param critic: (nn.Module) the critic
     :param data: (torch.Tensor) input data
     :param K: (float) target gradient norm
 
     :return: (torch.Tensor) gradient penalty
     """
-    x = data.clone().detach().requires_grad_(True)
-    y = model(x)
+    s = data.clone().detach().requires_grad_(True)
+    z = encoder(s).clone().detach().requires_grad_(True)
+
+    critique = critic(z)
     grad = torch.autograd.grad(
-        y, x, grad_outputs=torch.ones_like(y), create_graph=True
+        critique, z, grad_outputs=torch.ones_like(critique), create_graph=True
     )[0]
 
     return (grad.norm(2, dim=1) - K).pow(2).mean()
