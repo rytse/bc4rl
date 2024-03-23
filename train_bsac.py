@@ -15,8 +15,7 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 VIDEO_DIR = Path("logs/videos")
 VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
-N_TRAIN_TIME_STEPS = 100
-# N_TRAIN_TIME_STEPS = 100_000
+N_TRAIN_TIME_STEPS = 100_000
 N_CKPT_TIME_STEPS = N_TRAIN_TIME_STEPS // 10
 
 C = 0.5

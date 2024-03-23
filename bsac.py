@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from gymnasium import spaces
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.preprocessing import preprocess_obs
@@ -143,7 +142,7 @@ class BSAC(SAC):
         self._update_learning_rate(optimizers)
 
         ent_coef_losses, ent_coefs = [], []
-        actor_losses, critic_losses = [], []
+        bs_critic_losses, encoder_losses, actor_losses, critic_losses = [], [], [], []
 
         for gradient_step in range(gradient_steps):
             # Sample replay buffer
@@ -208,6 +207,7 @@ class BSAC(SAC):
                 self.bisim_critic_optimizer.zero_grad()
                 critic_loss.backward()
                 self.bisim_critic_optimizer.step()
+                bs_critic_losses.append(bs_loss.item())
 
             # Optimize the encoder
             for _ in range(self.bisim_config.encoder_training_steps):
@@ -230,6 +230,7 @@ class BSAC(SAC):
                 self.encoder_optimizer.zero_grad()
                 bs_loss.backward()
                 self.encoder_optimizer.step()
+                encoder_losses.append(bs_loss.item())
 
             # Compute the target Q value
             with torch.no_grad():
@@ -296,7 +297,9 @@ class BSAC(SAC):
 
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/ent_coef", np.mean(ent_coefs))
+        self.logger.record("train/encoder_loss", np.mean(encoder_losses))
         self.logger.record("train/actor_loss", np.mean(actor_losses))
         self.logger.record("train/critic_loss", np.mean(critic_losses))
+        self.logger.record("train/bisim_critic_loss", np.mean(bs_critic_losses))
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
