@@ -6,32 +6,34 @@ import imageio
 from stable_baselines3 import SAC
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.sac.policies import MlpPolicy
+from stable_baselines3.sac.policies import CnnPolicy, MlpPolicy
 
 from bsac import BSAC, BisimConfig
-from encoder import CustomMLP
 
 LOG_DIR = Path("logs")
 
-N_TRAIN_TIME_STEPS = 100_000
+N_TRAIN_TIME_STEPS = 200_000
 N_CKPT_TIME_STEPS = N_TRAIN_TIME_STEPS // 10
+
+REPLAY_BUFFER_SIZE = 300_000
 
 C = 0.5
 K = 1.0
 GRAD_PENALTY = 10.0
 
 BISIM_BATCH_SIZE = 2048
-N_CRITIC_TRAINING_STEPS = 10
-N_ENCODER_TRAINING_STEPS = 10
+N_CRITIC_TRAINING_STEPS = 5
+N_ENCODER_TRAINING_STEPS = 1
 
 
 @click.command()
 @click.argument("algo", type=click.Choice(["sac", "bsac"]))
-@click.option("-e", "--env-id", type=str, default="HalfCheetah-v4", required=False)
+@click.argument("policy", type=click.Choice(["cnn", "mlp"]))
+@click.argument("env-id", type=str)
 @click.option("-d", "--device", type=str, default="cuda:0", required=False)
 @click.option("-s", "--log-suffix", type=str, default="", required=False)
-def main(algo: str, env_id: str, device: str, log_suffix: str):
-    log_dir_str = f"{algo}_{env_id}"
+def main(algo: str, policy: str, env_id: str, device: str, log_suffix: str):
+    log_dir_str = f"{algo}_{policy}_{env_id}"
     if len(log_suffix) > 0:
         log_dir_str += f"_{log_suffix}"
     log_dir = LOG_DIR / log_dir_str
@@ -60,12 +62,19 @@ def main(algo: str, env_id: str, device: str, log_suffix: str):
         render=True,
     )
 
+    if policy == "cnn":
+        policy_type = CnnPolicy
+    elif policy == "mlp":
+        policy_type = MlpPolicy
+    else:
+        raise ValueError(f"Invalid policy: {policy}")
+
     if algo == "sac":
         model = SAC(
-            policy=MlpPolicy,
+            policy=policy_type,
             env=env,
+            buffer_size=REPLAY_BUFFER_SIZE,
             policy_kwargs={
-                "features_extractor_class": CustomMLP,
                 "share_features_extractor": True,
             },
             device=device,
@@ -73,7 +82,7 @@ def main(algo: str, env_id: str, device: str, log_suffix: str):
         )
     elif algo == "bsac":
         model = BSAC(
-            policy=MlpPolicy,
+            policy=policy_type,
             env=env,
             bisim_config=BisimConfig(
                 C=C,
@@ -83,11 +92,11 @@ def main(algo: str, env_id: str, device: str, log_suffix: str):
                 critic_training_steps=N_CRITIC_TRAINING_STEPS,
                 encoder_training_steps=N_ENCODER_TRAINING_STEPS,
             ),
+            buffer_size=REPLAY_BUFFER_SIZE,
             policy_kwargs={
-                "features_extractor_class": CustomMLP,
                 "share_features_extractor": True,
             },
-            device="cuda:1",
+            device=device,
             tensorboard_log=str(tb_dir),
         )
     else:
