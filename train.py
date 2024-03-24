@@ -26,11 +26,15 @@ N_ENCODER_TRAINING_STEPS = 10
 
 
 @click.command()
-@click.argument("algo", type=click.Choice(["sac", "bsac"]), help="RL algo to use")
-@click.argument("env_id", type=str, default="HalfCheetah-v4", required=False)
-@click.argument("device", type=str, default="cuda:0", required=False)
-def main(algo: str, env_id: str, device: str):
-    log_dir = LOG_DIR / f"{algo}_{env_id}"
+@click.argument("algo", type=click.Choice(["sac", "bsac"]))
+@click.option("-e", "--env-id", type=str, default="HalfCheetah-v4", required=False)
+@click.option("-d", "--device", type=str, default="cuda:0", required=False)
+@click.option("-s", "--log-suffix", type=str, default="", required=False)
+def main(algo: str, env_id: str, device: str, log_suffix: str):
+    log_dir_str = f"{algo}_{env_id}"
+    if len(log_suffix) > 0:
+        log_dir_str += f"_{log_suffix}"
+    log_dir = LOG_DIR / log_dir_str
     tb_dir = log_dir / "tensorboard"
     video_dir = log_dir / "videos"
     log_dir.mkdir(parents=True, exist_ok=True)
