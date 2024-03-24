@@ -53,9 +53,8 @@ class CustomMLP(BaseFeaturesExtractor):
             nn.ReLU(),
             nn.Linear(64, 64),
             nn.ReLU(),
+            nn.Linear(64, features_dim),
         )
 
-        self.linear = nn.Sequential(nn.Linear(64, features_dim), nn.ReLU())
-
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        return self.linear(self.mlp(observations))
+        return self.mlp(observations)
