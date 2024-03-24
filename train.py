@@ -66,9 +66,6 @@ def main(algo: str, env_id: str, device: str, log_suffix: str):
             env=env,
             policy_kwargs={
                 "features_extractor_class": CustomMLP,
-                "features_extractor_kwargs": {
-                    "features_dim": 256,
-                },
                 "share_features_extractor": True,
             },
             device=device,
@@ -88,9 +85,6 @@ def main(algo: str, env_id: str, device: str, log_suffix: str):
             ),
             policy_kwargs={
                 "features_extractor_class": CustomMLP,
-                "features_extractor_kwargs": {
-                    "features_dim": 256,
-                },
                 "share_features_extractor": True,
             },
             device="cuda:1",

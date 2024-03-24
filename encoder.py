@@ -1,3 +1,5 @@
+from typing import Type
+
 import torch
 import torch.nn as nn
 from gymnasium import spaces
@@ -40,21 +42,29 @@ class CustomMLP(BaseFeaturesExtractor):
     """
     :param observation_space: (gym.Space)
     :param features_dim: (int) Number of features extracted.
-        This corresponds to the number of unit for the last layer.
+    :param width: (int) Number of units in hidden layer
+    :param depth: (int) Number of hidden layers
+    :param activation: (Type[nn.Module]) Activation function
     """
 
-    def __init__(self, observation_space: spaces.Box, features_dim: int = 256):
+    def __init__(
+        self,
+        observation_space: spaces.Box,
+        features_dim: int = 64,
+        width: int = 64,
+        depth: int = 2,
+        activation: Type[nn.Module] = nn.ReLU,
+    ):
         super().__init__(observation_space, features_dim)
 
-        # We assume the input has shape (1, n_features)
-        n_input_features = observation_space.shape[0]
-        self.mlp = nn.Sequential(
-            nn.Linear(n_input_features, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU(),
-            nn.Linear(64, features_dim),
-        )
+        in_dim = observation_space.shape[0]
+        layers = [nn.Linear(in_dim, width), activation()]
+        for _ in range(depth):
+            layers.append(nn.Linear(width, width))
+            layers.append(activation())
+        layers.append(nn.Linear(width, features_dim))
+
+        self.mlp = nn.Sequential(*layers)
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         return self.mlp(observations)
