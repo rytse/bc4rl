@@ -79,21 +79,28 @@ for pair_epoch in range(N_PAIR_EPOCHS):
     print("Optimizing the critic...")
     for step in tqdm(range(N_CRITIC_TRAINING_STEPS)):
         replay_data = replay_buffer.sample(BATCH_SIZE)
-        replay_samples = preprocess_obs(
+        replay_obs = preprocess_obs(
             replay_data.observations,
             replay_buffer.observation_space,
         )
-        assert isinstance(replay_samples, torch.Tensor)
+        replay_next_obs = preprocess_obs(
+            replay_data.next_observations,
+            replay_buffer.observation_space,
+        )
+        replay_rewards = replay_data.rewards
+        assert isinstance(replay_obs, torch.Tensor)
+        assert isinstance(replay_next_obs, torch.Tensor)
 
         bs_loss = bisim_loss(
-            replay_data,
-            replay_buffer.observation_space,
+            replay_obs,
+            replay_next_obs,
+            replay_rewards,
             encoder,
             critic,
             C,
             K,
         )
-        grad_loss = gradient_penalty(encoder, critic, replay_samples, K)
+        grad_loss = gradient_penalty(encoder, critic, replay_obs, K)
 
         loss = bs_loss + GRAD_PENALTY_WEIGHT * grad_loss
 
@@ -110,15 +117,22 @@ for pair_epoch in range(N_PAIR_EPOCHS):
     print("Optimizing the encoder...")
     for step in tqdm(range(N_ENCODER_TRAINING_STEPS)):
         replay_data = replay_buffer.sample(BATCH_SIZE)
-        replay_samples = preprocess_obs(
+        replay_obs = preprocess_obs(
             replay_data.observations,
             replay_buffer.observation_space,
         )
-        assert isinstance(replay_samples, torch.Tensor)
+        replay_next_obs = preprocess_obs(
+            replay_data.next_observations,
+            replay_buffer.observation_space,
+        )
+        replay_rewards = replay_data.rewards
+        assert isinstance(replay_obs, torch.Tensor)
+        assert isinstance(replay_next_obs, torch.Tensor)
 
         bs_loss = bisim_loss(
-            replay_data,
-            replay_buffer.observation_space,
+            replay_obs,
+            replay_next_obs,
+            replay_rewards,
             encoder,
             critic,
             C,

@@ -1,15 +1,12 @@
-import gymnasium as gym
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from stable_baselines3.common.buffers import ReplayBuffer
-from stable_baselines3.common.preprocessing import preprocess_obs
-from stable_baselines3.common.type_aliases import ReplayBufferSamples
 
 
 def bisim_loss(
-    replay_samples: ReplayBufferSamples,
-    observation_space: gym.Space,
+    preprocessed_obs: torch.Tensor,
+    preprocessed_next_obs: torch.Tensor,
+    rewards: torch.Tensor,
     encoder: nn.Module,
     critic: nn.Module,
     c: float,
@@ -28,14 +25,14 @@ def bisim_loss(
 
     :return: (torch.Tensor) the bisimulation loss
     """
-    obs = replay_samples.observations
-    next_obs = replay_samples.next_observations
+    # obs = replay_samples.observations
+    # next_obs = replay_samples.next_observations
 
-    pre_obs = preprocess_obs(obs, observation_space)
-    pre_next = preprocess_obs(next_obs, observation_space)
+    # pre_obs = preprocess_obs(obs, observation_space)
+    # pre_next = preprocess_obs(next_obs, observation_space)
 
-    zs = encoder(pre_obs)  # (n_samples, z_dim)
-    next_zs = encoder(pre_next)  # (n_samples, z_dim)
+    zs = encoder(preprocessed_obs)  # (n_samples, z_dim)
+    next_zs = encoder(preprocessed_next_obs)  # (n_samples, z_dim)
     critique = critic(next_zs)  # (n_samples, 1)
 
     zs_i = zs[:, None, :]
@@ -44,8 +41,8 @@ def bisim_loss(
     critique_i = critique[:, None, :]
     critique_j = critique[None, :, :]
 
-    rewards_i = replay_samples.rewards[:, None]
-    rewards_j = replay_samples.rewards[None, :]
+    rewards_i = rewards[:, None]
+    rewards_j = rewards[None, :]
 
     encoded_distance = torch.norm(zs_i - zs_j, dim=2).unsqueeze(-1)  # TODO try L1
 

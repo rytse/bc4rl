@@ -146,7 +146,19 @@ class BSAC(SAC):
 
         for gradient_step in range(gradient_steps):
             # Sample replay buffer
+            assert self.replay_buffer is not None
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
+            replay_obs = preprocess_obs(
+                replay_data.observations,
+                self.replay_buffer.observation_space,
+            )
+            replay_next_obs = preprocess_obs(
+                replay_data.next_observations,
+                self.replay_buffer.observation_space,
+            )
+            replay_rewards = replay_data.rewards
+            assert isinstance(replay_obs, torch.Tensor)
+            assert isinstance(replay_next_obs, torch.Tensor)
 
             # We need to sample because `log_std` may have changed between two gradient steps
             if self.use_sde:
@@ -179,18 +191,11 @@ class BSAC(SAC):
                 self.ent_coef_optimizer.step()
 
             # Optimize the bisim critic
-            assert self.replay_buffer is not None
             for _ in range(self.bisim_config.critic_training_steps):
-                samples = preprocess_obs(
-                    self.replay_buffer.sample(
-                        self.bisim_config.batch_size
-                    ).observations,
-                    self.replay_buffer.observation_space,
-                )
-                assert isinstance(samples, torch.Tensor)
                 bs_loss = bisim_loss(
-                    replay_data,
-                    self.replay_buffer.observation_space,
+                    replay_obs,
+                    replay_next_obs,
+                    replay_rewards,
                     self.policy.actor.features_extractor,
                     self.bisim_critic,
                     self.bisim_config.C,
@@ -199,7 +204,7 @@ class BSAC(SAC):
                 grad_loss = gradient_penalty(
                     self.policy.actor.features_extractor,
                     self.bisim_critic,
-                    samples,
+                    replay_obs,
                     self.bisim_config.K,
                 )
                 critic_loss = bs_loss + self.bisim_config.grad_penalty * grad_loss
@@ -211,16 +216,10 @@ class BSAC(SAC):
 
             # Optimize the encoder
             for _ in range(self.bisim_config.encoder_training_steps):
-                samples = preprocess_obs(
-                    self.replay_buffer.sample(
-                        self.bisim_config.batch_size
-                    ).observations,
-                    self.replay_buffer.observation_space,
-                )
-                assert isinstance(samples, torch.Tensor)
                 bs_loss = bisim_loss(
-                    replay_data,
-                    self.replay_buffer.observation_space,
+                    replay_obs,
+                    replay_next_obs,
+                    replay_rewards,
                     self.policy.actor.features_extractor,
                     self.bisim_critic,
                     self.bisim_config.C,
