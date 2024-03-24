@@ -189,9 +189,9 @@ class BSAC(SAC):
             # Optimize the bisim critic
             for _ in range(self.bisim_config.critic_training_steps):
                 bs_loss = bisim_loss(
-                    replay_obs,
-                    replay_next_obs,
-                    replay_rewards,
+                    replay_obs.detach(),
+                    replay_next_obs.detach(),
+                    replay_rewards.detach(),
                     self.policy.actor.features_extractor,
                     self.bisim_critic,
                     self.bisim_config.C,
@@ -200,7 +200,7 @@ class BSAC(SAC):
                 grad_loss = gradient_penalty(
                     self.policy.actor.features_extractor,
                     self.bisim_critic,
-                    replay_obs,
+                    replay_obs.detach(),
                     self.bisim_config.K,
                 )
                 critic_loss = bs_loss + self.bisim_config.grad_penalty * grad_loss
@@ -213,9 +213,9 @@ class BSAC(SAC):
             # Optimize the encoder
             for _ in range(self.bisim_config.encoder_training_steps):
                 bs_loss = bisim_loss(
-                    replay_obs,
-                    replay_next_obs,
-                    replay_rewards,
+                    replay_obs.detach(),
+                    replay_next_obs.detach(),
+                    replay_rewards.detach(),
                     self.policy.actor.features_extractor,
                     self.bisim_critic,
                     self.bisim_config.C,
