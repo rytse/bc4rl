@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import numpy as np
 import torch
@@ -46,9 +46,6 @@ class BSAC(SAC):
         replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
         optimize_memory_usage: bool = False,
-        ent_coef: Union[str, float] = "auto",
-        target_update_interval: int = 1,
-        target_entropy: Union[str, float] = "auto",
         use_sde: bool = False,
         sde_sample_freq: int = -1,
         use_sde_at_warmup: bool = False,
@@ -58,7 +55,6 @@ class BSAC(SAC):
         verbose: int = 0,
         seed: Optional[int] = None,
         device: Union[torch.device, str] = "auto",
-        _init_setup_model: bool = True,
     ):
         policy_kwargs = policy_kwargs if policy_kwargs is not None else {}
         policy_kwargs["share_features_extractor"] = True
@@ -302,3 +298,26 @@ class BSAC(SAC):
         self.logger.record("train/bisim_critic_loss", np.mean(bs_critic_losses))
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
+
+    def _excluded_save_params(self) -> List[str]:
+        return super()._excluded_save_params() + [
+            "actor",
+            "critic",
+            "critic_target",
+            "bisim_critic",
+        ]
+
+    def _get_torch_save_params(self) -> Tuple[List[str], List[str]]:
+        state_dicts = [
+            "policy",
+            "actor.optimizer",
+            "critic.optimizer",
+            "bisim_critic_optimizer",
+            "encoder_optimizer",
+        ]
+        if self.ent_coef_optimizer is not None:
+            saved_pytorch_variables = ["log_ent_coef"]
+            state_dicts.append("ent_coef_optimizer")
+        else:
+            saved_pytorch_variables = ["ent_coef_tensor"]
+        return state_dicts, saved_pytorch_variables
