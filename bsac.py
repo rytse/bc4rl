@@ -97,32 +97,29 @@ class BSAC(SAC):
             nn.Linear(128, 1),
         ).to(device)
 
-        # Janky way to separately optimize the shared features extractor
-        encoder_params = []
-        actor_params = []
-        critic_params = []
-        for name, param in self.actor.named_parameters():
-            if "features_extractor" not in name:
-                encoder_params.append(param)
-            else:
-                actor_params.append(param)
-        for name, param in self.critic.named_parameters():
-            if "features_extractor" not in name:
-                critic_params.append(param)
-        self.actor.optimizer = self.policy.optimizer_class(
-            actor_params, lr=learning_rate
-        )
-        self.critic.optimizer = self.policy.optimizer_class(
-            critic_params, lr=learning_rate
-        )
-
-        # Bisim optimization works better without momentum, we use vanilla SGD
         if isinstance(learning_rate, float):
             lr = learning_rate
         elif callable(learning_rate):
             lr = learning_rate(1.0)
         else:
             raise ValueError("Invalid learning rate")
+
+        # Janky way to separately optimize the shared features extractor
+        encoder_params = []
+        actor_params = []
+        critic_params = []
+        for name, param in self.actor.named_parameters():
+            if "features_extractor" in name:
+                encoder_params.append(param)
+            else:
+                actor_params.append(param)
+        for name, param in self.critic.named_parameters():
+            if "features_extractor" not in name:
+                critic_params.append(param)
+        self.actor.optimizer = self.policy.optimizer_class(actor_params, lr=lr)
+        self.critic.optimizer = self.policy.optimizer_class(critic_params, lr=lr)
+
+        # Bisim optimization works better without momentum, we use vanilla SGD
         self.bisim_critic_optimizer = optim.SGD(self.bisim_critic.parameters(), lr=lr)
         self.encoder_optimizer = optim.SGD(encoder_params, lr=lr)
 

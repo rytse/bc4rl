@@ -1,109 +1,59 @@
 from pathlib import Path
 
 import click
-import gymnasium as gym
 import imageio
-from stable_baselines3 import SAC
+import numpy as np
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.sac.policies import CnnPolicy, MlpPolicy
 
-from bsac import BSAC, BisimConfig
+from algos import get_algo
+from envs import get_env
 
 LOG_DIR = Path("logs")
 
-N_TRAIN_TIME_STEPS = 200_000
+N_TRAIN_TIME_STEPS = 500_000
 N_CKPT_TIME_STEPS = N_TRAIN_TIME_STEPS // 10
-
-REPLAY_BUFFER_SIZE = 300_000
-
-C = 0.5
-K = 1.0
-GRAD_PENALTY = 10.0
-
-BISIM_BATCH_SIZE = 2048
-N_CRITIC_TRAINING_STEPS = 5
-N_ENCODER_TRAINING_STEPS = 1
 
 
 @click.command()
-@click.argument("algo", type=click.Choice(["sac", "bsac"]))
-@click.argument("policy", type=click.Choice(["cnn", "mlp"]))
-@click.argument("env-id", type=str)
+@click.argument("algo-name", type=click.Choice(["sac", "bsac"]))
+@click.argument("policy-type", type=str)
+@click.argument("env-name", type=str)
 @click.option("-d", "--device", type=str, default="cuda:0", required=False)
 @click.option("-s", "--log-suffix", type=str, default="", required=False)
-def main(algo: str, policy: str, env_id: str, device: str, log_suffix: str):
-    log_dir_str = f"{algo}_{policy}_{env_id}"
-    if len(log_suffix) > 0:
-        log_dir_str += f"_{log_suffix}"
-    log_dir = LOG_DIR / log_dir_str
+def main(algo_name: str, policy_type: str, env_name: str, device: str, log_suffix: str):
+    log_dir = LOG_DIR / (
+        f"{algo_name}_{policy_type}_{env_name.replace('/', '_')}"
+        + (f"_{log_suffix}" if len(log_suffix) > 0 else "")
+    )
     tb_dir = log_dir / "tensorboard"
     video_dir = log_dir / "videos"
+    best_path = log_dir / "best_model.zip"
     log_dir.mkdir(parents=True, exist_ok=True)
     tb_dir.mkdir(parents=True, exist_ok=True)
     video_dir.mkdir(parents=True, exist_ok=True)
 
-    env = gym.make(env_id)
-    eval_env = Monitor(gym.make(env_id, render_mode="rgb_array"))
+    train_env, eval_env = get_env(env_name)
 
     ckpt_cb = CheckpointCallback(
         save_freq=N_CKPT_TIME_STEPS,
         save_path=str(log_dir),
         name_prefix="rl_model",
-        save_replay_buffer=True,
-        save_vecnormalize=True,
     )
     eval_cb = EvalCallback(
         eval_env,
         best_model_save_path=str(log_dir),
         log_path=str(log_dir),
-        eval_freq=N_CKPT_TIME_STEPS // 10,
+        eval_freq=N_CKPT_TIME_STEPS,
         deterministic=True,
-        render=True,
     )
 
-    if policy == "cnn":
-        policy_type = CnnPolicy
-    elif policy == "mlp":
-        policy_type = MlpPolicy
-    else:
-        raise ValueError(f"Invalid policy: {policy}")
-
-    if algo == "sac":
-        model = SAC(
-            policy=policy_type,
-            env=env,
-            buffer_size=REPLAY_BUFFER_SIZE,
-            policy_kwargs={
-                "share_features_extractor": True,
-            },
-            device=device,
-            tensorboard_log=str(tb_dir),
-        )
-    elif algo == "bsac":
-        model = BSAC(
-            policy=policy_type,
-            env=env,
-            bisim_config=BisimConfig(
-                C=C,
-                K=K,
-                grad_penalty=GRAD_PENALTY,
-                batch_size=BISIM_BATCH_SIZE,
-                critic_training_steps=N_CRITIC_TRAINING_STEPS,
-                encoder_training_steps=N_ENCODER_TRAINING_STEPS,
-            ),
-            buffer_size=REPLAY_BUFFER_SIZE,
-            policy_kwargs={
-                "share_features_extractor": True,
-            },
-            device=device,
-            tensorboard_log=str(tb_dir),
-        )
-    else:
-        raise ValueError(f"Invalid algo: {algo}")
-
     # Train
-    model.learn(
+    algo = get_algo(algo_name, policy_type, train_env, device, tb_dir)
+    if best_path in log_dir.iterdir():
+        print(f"Loading best model from {best_path}")
+        algo.set_parameters(str(best_path))
+
+    algo.learn(
         total_timesteps=N_TRAIN_TIME_STEPS,
         callback=[ckpt_cb, eval_cb],
         progress_bar=True,
@@ -114,7 +64,8 @@ def main(algo: str, policy: str, env_id: str, device: str, log_suffix: str):
     done = False
     frames = []
     while not done:
-        action, _ = model.predict(obs, deterministic=True)
+        obs = np.array(obs)
+        action, _ = algo.predict(obs, deterministic=True)
         obs, _, terminated, truncated, _ = eval_env.step(action)
         done = terminated or truncated
         frames.append(eval_env.render())
