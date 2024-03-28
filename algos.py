@@ -8,16 +8,15 @@ from stable_baselines3 import SAC
 from bsac import BSAC, BisimConfig
 from encoder import CustomCNN, CustomMLP
 
-# REPLAY_BUFFER_SIZE = 200_000
 REPLAY_BUFFER_SIZE = 1_000_000
 
 C = 0.5
 K = 1.0
 GRAD_PENALTY = 10.0
+BS_REG_WEIGHT = 10.0
 
 BISIM_BATCH_SIZE = 2048
-N_CRITIC_TRAINING_STEPS = 5
-N_ENCODER_TRAINING_STEPS = 1
+N_CRITIC_TRAINING_STEPS = 10
 
 
 def get_sac(policy_type: str, env: gym.Env, device: str, tb_logdir: Path) -> SAC:
@@ -48,7 +47,7 @@ def get_bsac(policy_type: str, env: gym.Env, device: str, tb_logdir: Path) -> BS
         policy=policy_type,
         env=env,
         batch_size=256,
-        learning_rate=linear_schedule(7.3e-4),
+        learning_rate=2.5e-4,
         gamma=0.99,
         tau=0.01,
         train_freq=1,
@@ -60,7 +59,7 @@ def get_bsac(policy_type: str, env: gym.Env, device: str, tb_logdir: Path) -> BS
             grad_penalty=GRAD_PENALTY,
             batch_size=BISIM_BATCH_SIZE,
             critic_training_steps=N_CRITIC_TRAINING_STEPS,
-            encoder_training_steps=N_ENCODER_TRAINING_STEPS,
+            bs_reg_weight=BS_REG_WEIGHT,
         ),
         buffer_size=REPLAY_BUFFER_SIZE,
         policy_kwargs={

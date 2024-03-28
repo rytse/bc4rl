@@ -1,18 +1,31 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from gymnasium import spaces
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
+from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.preprocessing import preprocess_obs
+from stable_baselines3.common.torch_layers import (
+    BaseFeaturesExtractor,
+    CombinedExtractor,
+    FlattenExtractor,
+    NatureCNN,
+)
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
 from stable_baselines3.common.utils import polyak_update
 from stable_baselines3.sac import SAC
-from stable_baselines3.sac.policies import SACPolicy
+from stable_baselines3.sac.policies import (
+    CnnPolicy,
+    MlpPolicy,
+    MultiInputPolicy,
+    SACPolicy,
+)
 
 from bc4rl import bisim_loss, gradient_penalty
 
@@ -25,10 +38,180 @@ class BisimConfig:
 
     batch_size: int
     critic_training_steps: int
-    encoder_training_steps: int
+    bs_reg_weight: float
+
+
+class BSACPolicy(SACPolicy):
+    """
+    Policy class with actor, critic, and shared feature extractor where the feature extractor is
+    optimized with the critic, rather than the actor.
+    """
+
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Box,
+        lr_schedule: Schedule,
+        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        activation_fn: Type[nn.Module] = nn.ReLU,
+        use_sde: bool = False,
+        log_std_init: float = -3,
+        use_expln: bool = False,
+        clip_mean: float = 2.0,
+        features_extractor_class: Type[BaseFeaturesExtractor] = FlattenExtractor,
+        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        normalize_images: bool = True,
+        optimizer_class: Type[optim.Optimizer] = optim.Adam,
+        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        n_critics: int = 2,
+        share_features_extractor: bool = True,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            lr_schedule,
+            net_arch,
+            activation_fn,
+            use_sde,
+            log_std_init,
+            use_expln,
+            clip_mean,
+            features_extractor_class,
+            features_extractor_kwargs,
+            normalize_images,
+            optimizer_class,
+            optimizer_kwargs,
+            n_critics,
+            share_features_extractor,
+        )
+
+    def _build(self, lr_schedule: Schedule) -> None:
+        self.critic = self.make_critic()
+        self.critic.optimizer = self.optimizer_class(
+            self.critic.parameters(),
+            lr=lr_schedule(1),  # type: ignore[call-arg]
+            **self.optimizer_kwargs,
+        )
+
+        if self.share_features_extractor:
+            self.actor = self.make_actor(
+                features_extractor=self.critic.features_extractor
+            )
+            actor_parameters = [
+                param
+                for name, param in self.actor.named_parameters()
+                if "features_extractor" not in name
+            ]
+        else:
+            self.actor = self.make_actor()
+            actor_parameters = self.actor.parameters()
+        self.actor.optimizer = self.optimizer_class(
+            actor_parameters,
+            lr=lr_schedule(1),  # type: ignore[call-arg]
+            **self.optimizer_kwargs,
+        )
+
+        # Critic target should not share the features extractor with critic
+        self.critic_target = self.make_critic()
+        self.critic_target.load_state_dict(self.critic.state_dict())
+
+        # Target networks should always be in eval mode
+        self.critic_target.set_training_mode(False)
+
+
+BSACMlpPolicy = BSACPolicy
+
+
+class BSACCnnPolicy(BSACPolicy):
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Box,
+        lr_schedule: Schedule,
+        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        activation_fn: Type[nn.Module] = nn.ReLU,
+        use_sde: bool = False,
+        log_std_init: float = -3,
+        use_expln: bool = False,
+        clip_mean: float = 2.0,
+        features_extractor_class: Type[BaseFeaturesExtractor] = NatureCNN,
+        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        normalize_images: bool = True,
+        optimizer_class: Type[optim.Optimizer] = optim.Adam,
+        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        n_critics: int = 2,
+        share_features_extractor: bool = True,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            lr_schedule,
+            net_arch,
+            activation_fn,
+            use_sde,
+            log_std_init,
+            use_expln,
+            clip_mean,
+            features_extractor_class,
+            features_extractor_kwargs,
+            normalize_images,
+            optimizer_class,
+            optimizer_kwargs,
+            n_critics,
+            share_features_extractor,
+        )
+
+
+class BSACMultiInputPolicy(BSACPolicy):
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Box,
+        lr_schedule: Schedule,
+        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        activation_fn: Type[nn.Module] = nn.ReLU,
+        use_sde: bool = False,
+        log_std_init: float = -3,
+        use_expln: bool = False,
+        clip_mean: float = 2.0,
+        features_extractor_class: Type[BaseFeaturesExtractor] = CombinedExtractor,
+        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        normalize_images: bool = True,
+        optimizer_class: Type[optim.Optimizer] = optim.Adam,
+        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        n_critics: int = 2,
+        share_features_extractor: bool = False,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            lr_schedule,
+            net_arch,
+            activation_fn,
+            use_sde,
+            log_std_init,
+            use_expln,
+            clip_mean,
+            features_extractor_class,
+            features_extractor_kwargs,
+            normalize_images,
+            optimizer_class,
+            optimizer_kwargs,
+            n_critics,
+            share_features_extractor,
+        )
 
 
 class BSAC(SAC):
+    policy_aliases: ClassVar[Dict[str, Type[BasePolicy]]] = {
+        "MlpPolicy": MlpPolicy,
+        "CnnPolicy": CnnPolicy,
+        "MultiInputPolicy": MultiInputPolicy,
+        "BSACMlpPolicy": BSACMlpPolicy,
+        "BSACCnnPolicy": BSACCnnPolicy,
+        "BSACMultiInputPolicy": BSACMultiInputPolicy,
+    }
+
     def __init__(
         self,
         policy: Union[str, Type[SACPolicy]],
@@ -97,31 +280,16 @@ class BSAC(SAC):
             nn.Linear(128, 1),
         ).to(device)
 
+        # Bisim optimization works better without momentum, we use vanilla SGD
         if isinstance(learning_rate, float):
-            lr = learning_rate
+            sgd_lr = learning_rate
         elif callable(learning_rate):
-            lr = learning_rate(1.0)
+            sgd_lr = learning_rate(1.0)
         else:
             raise ValueError("Invalid learning rate")
-
-        # Janky way to separately optimize the shared features extractor
-        encoder_params = []
-        actor_params = []
-        critic_params = []
-        for name, param in self.actor.named_parameters():
-            if "features_extractor" in name:
-                encoder_params.append(param)
-            else:
-                actor_params.append(param)
-        for name, param in self.critic.named_parameters():
-            if "features_extractor" not in name:
-                critic_params.append(param)
-        self.actor.optimizer = self.policy.optimizer_class(actor_params, lr=lr)
-        self.critic.optimizer = self.policy.optimizer_class(critic_params, lr=lr)
-
-        # Bisim optimization works better without momentum, we use vanilla SGD
-        self.bisim_critic_optimizer = optim.SGD(self.bisim_critic.parameters(), lr=lr)
-        self.encoder_optimizer = optim.SGD(encoder_params, lr=lr)
+        self.bisim_critic_optimizer = optim.SGD(
+            self.bisim_critic.parameters(), lr=sgd_lr
+        )
 
     def train(self, gradient_steps: int, batch_size: int = 64) -> None:
         # Switch to train mode (this affects batch norm / dropout)
@@ -207,23 +375,6 @@ class BSAC(SAC):
                 self.bisim_critic_optimizer.step()
                 bs_critic_losses.append(bs_loss.item())
 
-            # Optimize the encoder
-            for _ in range(self.bisim_config.encoder_training_steps):
-                bs_loss = bisim_loss(
-                    replay_obs.detach(),
-                    replay_next_obs.detach(),
-                    replay_rewards.detach(),
-                    self.policy.actor.features_extractor,
-                    self.bisim_critic,
-                    self.bisim_config.C,
-                    self.bisim_config.K,
-                )
-
-                self.encoder_optimizer.zero_grad()
-                bs_loss.backward()
-                self.encoder_optimizer.step()
-                encoder_losses.append(bs_loss.item())
-
             # Compute the target Q value
             with torch.no_grad():
                 # Select action according to policy
@@ -244,6 +395,17 @@ class BSAC(SAC):
                     + (1 - replay_data.dones) * self.gamma * next_q_values
                 )
 
+            # Compute the bisim loss to regularize the SAC critic
+            bs_loss = bisim_loss(
+                replay_obs.detach(),
+                replay_next_obs.detach(),
+                replay_rewards.detach(),
+                self.policy.actor.features_extractor,
+                self.bisim_critic,
+                self.bisim_config.C,
+                self.bisim_config.K,
+            )
+
             # Get current Q-values estimates for each critic network
             # using action from the replay buffer
             current_q_values = self.critic(
@@ -251,8 +413,13 @@ class BSAC(SAC):
             )
 
             # Compute critic loss
-            critic_loss = 0.5 * sum(
-                F.mse_loss(current_q, target_q_values) for current_q in current_q_values
+            critic_loss = (
+                0.5
+                * sum(
+                    F.mse_loss(current_q, target_q_values)
+                    for current_q in current_q_values
+                )
+                + self.bisim_config.bs_reg_weight * bs_loss
             )
             assert isinstance(critic_loss, torch.Tensor)  # for type checker
             critic_losses.append(critic_loss.item())  # type: ignore[union-attr]
@@ -289,32 +456,30 @@ class BSAC(SAC):
 
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/ent_coef", np.mean(ent_coefs))
-        self.logger.record("train/encoder_loss", np.mean(encoder_losses))
         self.logger.record("train/actor_loss", np.mean(actor_losses))
         self.logger.record("train/critic_loss", np.mean(critic_losses))
         self.logger.record("train/bisim_critic_loss", np.mean(bs_critic_losses))
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
 
-    def _excluded_save_params(self) -> List[str]:
-        return super()._excluded_save_params() + [
-            "actor",
-            "critic",
-            "critic_target",
-            "bisim_critic",
-        ]
+    # def _excluded_save_params(self) -> List[str]:
+    #     return super()._excluded_save_params() + [
+    #         "actor",
+    #         "critic",
+    #         "critic_target",
+    #         "bisim_critic",
+    #     ]
 
-    def _get_torch_save_params(self) -> Tuple[List[str], List[str]]:
-        state_dicts = [
-            "policy",
-            "actor.optimizer",
-            "critic.optimizer",
-            "bisim_critic_optimizer",
-            "encoder_optimizer",
-        ]
-        if self.ent_coef_optimizer is not None:
-            saved_pytorch_variables = ["log_ent_coef"]
-            state_dicts.append("ent_coef_optimizer")
-        else:
-            saved_pytorch_variables = ["ent_coef_tensor"]
-        return state_dicts, saved_pytorch_variables
+    # def _get_torch_save_params(self) -> Tuple[List[str], List[str]]:
+    #     state_dicts = [
+    #         "policy",
+    #         "actor.optimizer",
+    #         "critic.optimizer",
+    #         "bisim_critic_optimizer",
+    #     ]
+    #     if self.ent_coef_optimizer is not None:
+    #         saved_pytorch_variables = ["log_ent_coef"]
+    #         state_dicts.append("ent_coef_optimizer")
+    #     else:
+    #         saved_pytorch_variables = ["ent_coef_tensor"]
+    #     return state_dicts, saved_pytorch_variables
