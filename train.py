@@ -5,8 +5,8 @@ import imageio
 import numpy as np
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 
-from algos import get_algo
-from envs import get_env
+from experiments.algos import get_algo
+from experiments.envs import get_env
 
 LOG_DIR = Path("logs")
 

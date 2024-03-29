@@ -6,7 +6,7 @@ import numpy as np
 from stable_baselines3 import SAC
 from stable_baselines3.common.monitor import Monitor
 
-from envs import get_env
+from experiments.envs import get_env
 
 LOG_DIR = Path("logs/sac_CnnPolicy_carracer")
 VIDEO_DIR = LOG_DIR / "videos"

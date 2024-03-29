@@ -1,12 +1,11 @@
 from pathlib import Path
-from typing import Type
 
 import gymnasium as gym
 from rl_zoo3 import linear_schedule
 from stable_baselines3 import SAC
 
-from bsac import BSAC, BisimConfig
-from encoder import CustomCNN, CustomMLP
+from bc4rl.algos import BSAC, BisimConfig
+from bc4rl.encoder import CustomMLP
 
 REPLAY_BUFFER_SIZE = 1_000_000
 
