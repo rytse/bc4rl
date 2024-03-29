@@ -1,3 +1,5 @@
+.vscode/
+
 # Model logs, checkpoints, etc
 logs/
 
