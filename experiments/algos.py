@@ -58,7 +58,6 @@ def get_bsac(policy_type: str, env: gym.Env, device: str, tb_logdir: Path) -> BS
             grad_penalty=GRAD_PENALTY,
             batch_size=BISIM_BATCH_SIZE,
             critic_training_steps=N_CRITIC_TRAINING_STEPS,
-            bs_reg_weight=BS_REG_WEIGHT,
         ),
         buffer_size=REPLAY_BUFFER_SIZE,
         policy_kwargs={
