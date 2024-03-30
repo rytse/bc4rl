@@ -61,6 +61,7 @@ dependencies:
   - fontconfig=2.14.2=h14ed4e7_0
   - fonts-conda-ecosystem=1=0
   - fonts-conda-forge=1=0
+  - fonttools=4.50.0=py38h01eb140_0
   - fqdn=1.5.1=pyhd8ed1ab_0
   - freetype=2.12.1=h267a509_2
   - gettext=0.21.1=h27087fc_0
@@ -84,7 +85,6 @@ dependencies:
   - idna=3.6=pyhd8ed1ab_0
   - importlib-metadata=7.0.2=pyha770c72_0
   - importlib_metadata=7.0.2=hd8ed1ab_0
-  - importlib_resources=6.3.0=pyhd8ed1ab_0
   - ipykernel=6.29.3=pyhd33586a_0
   - ipython=8.12.2=pyh41d4057_0
   - isoduration=20.11.0=pyhd8ed1ab_0
@@ -179,7 +179,6 @@ dependencies:
   - lz4-c=1.9.4=hcb278e6_0
   - markdown=3.6=pyhd8ed1ab_0
   - markupsafe=2.1.5=py38h01eb140_0
-  - matplotlib-base=3.7.3=py38h58ed7fa_0
   - matplotlib-inline=0.1.6=pyhd8ed1ab_0
   - mistune=3.0.2=pyhd8ed1ab_0
   - mkl=2022.1.0=h84fe81f_915
@@ -239,6 +238,7 @@ dependencies:
   - python-fastjsonschema=2.19.1=pyhd8ed1ab_0
   - python-json-logger=2.0.7=pyhd8ed1ab_0
   - python_abi=3.8=4_cp38
+  - pytorch=2.2.1=py3.8_cuda11.8_cudnn8.7.0_0
   - pytorch-cuda=11.8=h7e8668a_5
   - pytorch-mutex=1.0=cuda
   - pytz=2024.1=pyhd8ed1ab_0
@@ -267,6 +267,7 @@ dependencies:
   - toml=0.10.2=pyhd8ed1ab_0
   - tomli=2.0.1=pyhd8ed1ab_0
   - torchaudio=2.2.1=py38_cu118
+  - torchtriton=2.2.0=py38
   - torchvision=0.17.1=py38_cu118
   - tornado=6.4=py38h01eb140_0
   - traitlets=5.14.2=pyhd8ed1ab_0
@@ -315,15 +316,10 @@ dependencies:
       - chardet==5.2.0
       - click==8.1.7
       - cloudpickle==3.0.0
-      - cmake==3.25.0
       - colorlog==6.8.2
       - dataproperty==1.0.1
-      - dm-control==1.0.16
-      - dm-env==1.6
-      - dm-tree==0.1.8
       - etils==1.3.0
       - farama-notifications==0.0.4
-      - fonttools==4.50.0
       - fsspec==2024.3.0
       - glfw==2.7.0
       - google-auth==2.28.2
@@ -331,15 +327,11 @@ dependencies:
       - greenlet==3.0.3
       - grpcio==1.62.1
       - gymnasium==0.29.1
-      - h5py==3.10.0
       - huggingface-hub==0.21.4
       - huggingface-sb3==3.0
       - imageio==2.34.0
       - imageio-ffmpeg==0.4.9
       - importlib-resources==6.3.1
-      - labmaze==1.0.6
-      - lit==15.0.7
-      - lxml==5.1.0
       - mako==1.3.2
       - markdown-it-py==3.0.0
       - matplotlib==3.7.5
@@ -365,7 +357,6 @@ dependencies:
       - rl-zoo3==2.2.1
       - rsa==4.9
       - sb3-contrib==2.2.1
-      - scipy==1.10.1
       - shimmy==1.3.0
       - sqlalchemy==2.0.28
       - stable-baselines3==2.2.1
@@ -376,9 +367,7 @@ dependencies:
       - tensorboard==2.14.0
       - tensorboard-data-server==0.7.2
       - tinyscaler==1.2.7
-      - torch==2.0.1+cu117
       - tqdm==4.66.2
-      - triton==2.0.0
       - typepy==1.3.2
       - tzdata==2024.1
       - wasabi==1.1.2
