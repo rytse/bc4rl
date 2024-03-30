@@ -8,20 +8,13 @@ import torch.nn.functional as F
 import torch.optim as optim
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
-from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.preprocessing import preprocess_obs
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
 from stable_baselines3.common.utils import polyak_update
 from stable_baselines3.sac import SAC
-from stable_baselines3.sac.policies import (
-    CnnPolicy,
-    MlpPolicy,
-    MultiInputPolicy,
-    SACPolicy,
-)
 
 from .bisim import bisim_loss, gradient_penalty
-from .policies import BSACCnnPolicy, BSACMlpPolicy, BSACMultiInputPolicy
+from .policies import BSACCnnPolicy, BSACMlpPolicy, BSACMultiInputPolicy, BSACPolicy
 
 
 @dataclass
@@ -32,14 +25,10 @@ class BisimConfig:
 
     batch_size: int
     critic_training_steps: int
-    bs_reg_weight: float
 
 
 class BSAC(SAC):
-    policy_aliases: ClassVar[Dict[str, Type[BasePolicy]]] = {
-        "MlpPolicy": MlpPolicy,
-        "CnnPolicy": CnnPolicy,
-        "MultiInputPolicy": MultiInputPolicy,
+    policy_aliases: ClassVar[Dict[str, Type[BSACPolicy]]] = {
         "BSACMlpPolicy": BSACMlpPolicy,
         "BSACCnnPolicy": BSACCnnPolicy,
         "BSACMultiInputPolicy": BSACMultiInputPolicy,
@@ -47,7 +36,7 @@ class BSAC(SAC):
 
     def __init__(
         self,
-        policy: Union[str, Type[SACPolicy]],
+        policy: Union[str, Type[BSACPolicy]],
         env: Union[GymEnv, str],
         bisim_config: BisimConfig,
         learning_rate: Union[float, Schedule] = 3e-4,
@@ -125,10 +114,17 @@ class BSAC(SAC):
         )
 
     def train(self, gradient_steps: int, batch_size: int = 64) -> None:
+        assert isinstance(self.policy, BSACPolicy)
+
         # Switch to train mode (this affects batch norm / dropout)
         self.policy.set_training_mode(True)
         # Update optimizers learning rate
-        optimizers = [self.actor.optimizer, self.critic.optimizer]
+        optimizers = [
+            self.actor.optimizer,
+            self.critic.optimizer,
+            self.policy.encoder_optimizer,
+            # self.bisim_critic_optimizer, # momentum breaks critic training
+        ]
         if self.ent_coef_optimizer is not None:
             optimizers += [self.ent_coef_optimizer]
 
@@ -153,6 +149,45 @@ class BSAC(SAC):
             replay_rewards = replay_data.rewards
             assert isinstance(replay_obs, torch.Tensor)
             assert isinstance(replay_next_obs, torch.Tensor)
+
+            # Optimize the bisim critic
+            for _ in range(self.bisim_config.critic_training_steps):
+                bs_loss = bisim_loss(
+                    replay_obs.detach(),
+                    replay_next_obs.detach(),
+                    replay_rewards.detach(),
+                    self.policy.encoder,
+                    self.bisim_critic,
+                    self.bisim_config.C,
+                    self.bisim_config.K,
+                )
+                grad_loss = gradient_penalty(
+                    self.policy.encoder,
+                    self.bisim_critic,
+                    replay_obs.detach(),
+                    self.bisim_config.K,
+                )
+                critic_loss = bs_loss + self.bisim_config.grad_penalty * grad_loss
+
+                self.bisim_critic_optimizer.zero_grad()
+                critic_loss.backward()
+                self.bisim_critic_optimizer.step()
+                bs_critic_losses.append(bs_loss.item())
+
+            # Optimize encoder
+            bs_loss = bisim_loss(
+                replay_obs.detach(),
+                replay_next_obs.detach(),
+                replay_rewards.detach(),
+                self.policy.encoder,
+                self.bisim_critic,
+                self.bisim_config.C,
+                self.bisim_config.K,
+            )
+            self.policy.encoder_optimizer.zero_grad()
+            bs_loss.backward()
+            self.policy.encoder_optimizer.step()
+            encoder_losses.append(bs_loss.item())
 
             # We need to sample because `log_std` may have changed between two gradient steps
             if self.use_sde:
@@ -184,30 +219,6 @@ class BSAC(SAC):
                 ent_coef_loss.backward()
                 self.ent_coef_optimizer.step()
 
-            # Optimize the bisim critic
-            for _ in range(self.bisim_config.critic_training_steps):
-                bs_loss = bisim_loss(
-                    replay_obs.detach(),
-                    replay_next_obs.detach(),
-                    replay_rewards.detach(),
-                    self.policy.actor.features_extractor,
-                    self.bisim_critic,
-                    self.bisim_config.C,
-                    self.bisim_config.K,
-                )
-                grad_loss = gradient_penalty(
-                    self.policy.actor.features_extractor,
-                    self.bisim_critic,
-                    replay_obs.detach(),
-                    self.bisim_config.K,
-                )
-                critic_loss = bs_loss + self.bisim_config.grad_penalty * grad_loss
-
-                self.bisim_critic_optimizer.zero_grad()
-                critic_loss.backward()
-                self.bisim_critic_optimizer.step()
-                bs_critic_losses.append(bs_loss.item())
-
             # Compute the target Q value
             with torch.no_grad():
                 # Select action according to policy
@@ -228,17 +239,6 @@ class BSAC(SAC):
                     + (1 - replay_data.dones) * self.gamma * next_q_values
                 )
 
-            # Compute the bisim loss to regularize the SAC critic
-            bs_loss = bisim_loss(
-                replay_obs.detach(),
-                replay_next_obs.detach(),
-                replay_rewards.detach(),
-                self.policy.actor.features_extractor,
-                self.bisim_critic,
-                self.bisim_config.C,
-                self.bisim_config.K,
-            )
-
             # Get current Q-values estimates for each critic network
             # using action from the replay buffer
             current_q_values = self.critic(
@@ -246,13 +246,8 @@ class BSAC(SAC):
             )
 
             # Compute critic loss
-            critic_loss = (
-                0.5
-                * sum(
-                    F.mse_loss(current_q, target_q_values)
-                    for current_q in current_q_values
-                )
-                + self.bisim_config.bs_reg_weight * bs_loss
+            critic_loss = 0.5 * sum(
+                F.mse_loss(current_q, target_q_values) for current_q in current_q_values
             )
             assert isinstance(critic_loss, torch.Tensor)  # for type checker
             critic_losses.append(critic_loss.item())  # type: ignore[union-attr]

@@ -58,34 +58,38 @@ class BSACPolicy(SACPolicy):
         )
 
     def _build(self, lr_schedule: Schedule) -> None:
-        self.critic = self.make_critic()
+        self.encoder = self.make_features_extractor()
+        self.encoder_optimizer = self.optimizer_class(
+            self.encoder.parameters(),
+            lr=lr_schedule(1),  # type: ignore[call-arg]
+            **self.optimizer_kwargs,
+        )
+
+        self.actor = self.make_actor(features_extractor=self.encoder)
+        self.actor.optimizer = self.optimizer_class(
+            self.actor.parameters(),
+            lr=lr_schedule(1),  # type: ignore[call-arg]
+            **self.optimizer_kwargs,
+        )
+
+        self.critic = self.make_critic(features_extractor=self.encoder)
         self.critic.optimizer = self.optimizer_class(
             self.critic.parameters(),
             lr=lr_schedule(1),  # type: ignore[call-arg]
             **self.optimizer_kwargs,
         )
 
-        if self.share_features_extractor:
-            self.actor = self.make_actor(
-                features_extractor=self.critic.features_extractor
-            )
-            actor_parameters = [
-                param
-                for name, param in self.actor.named_parameters()
-                if "features_extractor" not in name
-            ]
-        else:
-            self.actor = self.make_actor()
-            actor_parameters = self.actor.parameters()
-        self.actor.optimizer = self.optimizer_class(
-            actor_parameters,
-            lr=lr_schedule(1),  # type: ignore[call-arg]
-            **self.optimizer_kwargs,
-        )
-
         # Critic target should not share the features extractor with critic
-        self.critic_target = self.make_critic()
+        self.critic_target = self.make_critic(features_extractor=None)
         self.critic_target.load_state_dict(self.critic.state_dict())
+
+        # Not needed?
+        # self.critic_target = self.make_critic(features_extractor=None)
+        # self.critic_target.features_extractor.load_state_dict(self.encoder.state_dict())
+        # for i in range(self.critic_target.n_critics):
+        #     self.critic_target.q_networks[i].load_state_dict(
+        #         self.critic.q_networks[i].state_dict()
+        #     )
 
         # Target networks should always be in eval mode
         self.critic_target.set_training_mode(False)
