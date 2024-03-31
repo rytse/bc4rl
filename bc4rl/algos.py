@@ -34,13 +34,16 @@ class BSAC(SAC):
         "BSACMultiInputPolicy": BSACMultiInputPolicy,
     }
 
+    policy: BSACPolicy
+
     def __init__(
         self,
         policy: Union[str, Type[BSACPolicy]],
         env: Union[GymEnv, str],
         bisim_config: BisimConfig,
-        learning_rate: Union[float, Schedule] = 3e-4,
-        buffer_size: int = 1_000_000,  # 1e6
+        sac_lr: Union[float, Schedule] = 3e-4,
+        bisim_lr: Optional[float] = None,
+        buffer_size: int = 1_000_000,
         learning_starts: int = 100,
         batch_size: int = 256,
         tau: float = 0.005,
@@ -57,6 +60,7 @@ class BSAC(SAC):
         stats_window_size: int = 100,
         tensorboard_log: Optional[str] = None,
         policy_kwargs: Optional[Dict[str, Any]] = None,
+        bisim_critic_kwargs: Optional[Dict[str, Any]] = None,
         verbose: int = 0,
         seed: Optional[int] = None,
         device: Union[torch.device, str] = "auto",
@@ -69,7 +73,7 @@ class BSAC(SAC):
         super().__init__(
             policy,
             env,
-            learning_rate,
+            sac_lr,
             buffer_size,
             learning_starts,
             batch_size,
@@ -92,30 +96,40 @@ class BSAC(SAC):
             optimize_memory_usage=optimize_memory_usage,
         )
 
-        self.bisim_critic = nn.Sequential(
-            nn.Linear(self.policy.actor.features_extractor.features_dim, 256),
-            nn.SiLU(),
-            nn.Linear(256, 128),
-            nn.SiLU(),
-            nn.Linear(128, 128),
-            nn.SiLU(),
-            nn.Linear(128, 1),
-        ).to(device)
+        if bisim_critic_kwargs is None:
+            bisim_critic_kwargs = {"feature_dim": self.policy.encoder.features_dim}
+        else:
+            bisim_critic_kwargs["feature_dim"] = self.policy.encoder.features_dim
+        self.bisim_critic = self.make_bisim_critic(**bisim_critic_kwargs).to(device)
 
         # Bisim optimization works better without momentum, we use vanilla SGD
-        if isinstance(learning_rate, float):
-            sgd_lr = learning_rate
-        elif callable(learning_rate):
-            sgd_lr = learning_rate(1.0)
-        else:
-            raise ValueError("Invalid learning rate")
+        if bisim_lr is None:
+            if isinstance(sac_lr, float):
+                bisim_lr = sac_lr
+            elif callable(sac_lr):
+                bisim_lr = sac_lr(1.0)
+            else:
+                raise ValueError("Invalid learning rate")
         self.bisim_critic_optimizer = optim.SGD(
-            self.bisim_critic.parameters(), lr=sgd_lr
+            self.bisim_critic.parameters(), lr=bisim_lr
         )
 
-    def train(self, gradient_steps: int, batch_size: int = 64) -> None:
-        assert isinstance(self.policy, BSACPolicy)
+    def make_bisim_critic(
+        self,
+        feature_dim: int,
+        width: int = 32,
+        depth: int = 2,
+        act: Type[nn.Module] = nn.SiLU,
+    ) -> nn.Module:
+        layers = [nn.Linear(feature_dim, width), act()]
+        for _ in range(depth):
+            layers.append(nn.Linear(width, width))
+            layers.append(act())
+        layers.append(nn.Linear(width, 1))
 
+        return nn.Sequential(*layers)
+
+    def train(self, gradient_steps: int, batch_size: int = 64) -> None:
         # Switch to train mode (this affects batch norm / dropout)
         self.policy.set_training_mode(True)
         # Update optimizers learning rate
