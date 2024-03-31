@@ -1,8 +1,8 @@
 from pathlib import Path
 
-import gymnasium as gym
 from rl_zoo3 import linear_schedule
 from stable_baselines3 import SAC
+from stable_baselines3.common.type_aliases import GymEnv
 
 from bc4rl.algos import BSAC, BisimConfig
 from bc4rl.encoder import CustomMLP
@@ -18,7 +18,7 @@ BISIM_BATCH_SIZE = 2048
 N_CRITIC_TRAINING_STEPS = 10
 
 
-def get_sac(policy_type: str, env: gym.Env, device: str, tb_logdir: Path) -> SAC:
+def get_sac(policy_type: str, env: GymEnv, device: str, tb_logdir: Path) -> SAC:
     return SAC(
         policy=policy_type,
         env=env,
@@ -41,7 +41,7 @@ def get_sac(policy_type: str, env: gym.Env, device: str, tb_logdir: Path) -> SAC
     )
 
 
-def get_bsac(policy_type: str, env: gym.Env, device: str, tb_logdir: Path) -> BSAC:
+def get_bsac(policy_type: str, env: GymEnv, device: str, tb_logdir: Path) -> BSAC:
     return BSAC(
         policy=policy_type,
         env=env,
@@ -71,7 +71,13 @@ def get_bsac(policy_type: str, env: gym.Env, device: str, tb_logdir: Path) -> BS
     )
 
 
-def get_algo(algo: str, policy_type: str, env: gym.Env, device: str, tb_logdir: Path):
+def get_algo(
+    algo: str,
+    policy_type: str,
+    env: GymEnv,
+    device: str,
+    tb_logdir: Path,
+):
     if algo == "sac":
         return get_sac(policy_type, env, device, tb_logdir)
     elif algo == "bsac":
