@@ -10,7 +10,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.preprocessing import preprocess_obs
 from tqdm import tqdm
 
-from bc4rl import bisim_loss, gradient_penalty
+from bc4rl.bisim import bisim_loss, gradient_penalty
 
 LOG_DIR = Path("logs")
 
