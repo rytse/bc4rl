@@ -10,8 +10,8 @@ from experiments.envs import get_env
 
 LOG_DIR = Path("logs")
 
-N_TRAIN_STEPS = 500_000
-CKPT_RATIO = 100
+N_TRAIN_STEPS = 1_000_000
+CKPT_RATIO = 10
 
 
 @click.command()
