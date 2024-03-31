@@ -40,9 +40,9 @@ def get_carracer_env() -> Tuple[GymEnv, GymEnv]:
     return train_env, eval_env
 
 
-def get_lunarlander_env() -> Tuple[GymEnv, GymEnv]:
+def get_lunarlander_env(n_parallel: int) -> Tuple[GymEnv, GymEnv]:
     train_env = make_vec_env(
-        "LunarLander-v2", n_envs=8, env_kwargs={"continuous": True}
+        "LunarLander-v2", n_envs=n_parallel, env_kwargs={"continuous": True}
     )
     eval_env = make_vec_env(
         "LunarLander-v2",
@@ -53,7 +53,7 @@ def get_lunarlander_env() -> Tuple[GymEnv, GymEnv]:
     return train_env, eval_env
 
 
-def get_env(name: str) -> Tuple[GymEnv, GymEnv]:
+def get_env(name: str, n_parallel: int) -> Tuple[GymEnv, GymEnv]:
     if name == "pendulum":
         return get_pendulum_env()
     elif name == "cheetah":
@@ -61,6 +61,6 @@ def get_env(name: str) -> Tuple[GymEnv, GymEnv]:
     elif name == "carracer":
         return get_carracer_env()
     elif name == "lunarlander":
-        return get_lunarlander_env()
+        return get_lunarlander_env(n_parallel)
     else:
         raise ValueError(f"Unknown environment: {name}")

@@ -19,6 +19,7 @@ CKPT_RATIO = 10
 @click.argument("policy-type", type=str)
 @click.argument("env-name", type=str)
 @click.option("-d", "--device", type=str, default="cuda:0", required=False)
+@click.option("-p", "--n-parallel", type=int, default=8, required=False)
 @click.option("-s", "--log-suffix", type=str, default="", required=False)
 @click.option("-n", "--n-train-steps", type=int, default=N_TRAIN_STEPS, required=False)
 @click.option("-c", "--ckpt-ratio", type=int, default=CKPT_RATIO, required=False)
@@ -27,6 +28,7 @@ def main(
     policy_type: str,
     env_name: str,
     device: str,
+    n_parallel: int,
     log_suffix: str,
     n_train_steps: int,
     ckpt_ratio: int,
@@ -42,7 +44,7 @@ def main(
     tb_dir.mkdir(parents=True, exist_ok=True)
     video_dir.mkdir(parents=True, exist_ok=True)
 
-    train_env, eval_env = get_env(env_name)
+    train_env, eval_env = get_env(env_name, n_parallel)
 
     cb_freq = max(n_train_steps // ckpt_ratio // eval_env.num_envs, 1)
     ckpt_cb = CheckpointCallback(
