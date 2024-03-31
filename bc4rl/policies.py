@@ -75,7 +75,7 @@ class BSACPolicy(SACPolicy):
             if "features_extractor" not in name
         ]
         self.actor.optimizer = self.optimizer_class(
-            actor_params
+            actor_params,
             lr=lr_schedule(1),  # type: ignore[call-arg]
             **self.optimizer_kwargs,
         )
@@ -87,7 +87,7 @@ class BSACPolicy(SACPolicy):
             if "features_extractor" not in name
         ]
         self.critic.optimizer = self.optimizer_class(
-            critic_params, 
+            critic_params,
             lr=lr_schedule(1),  # type: ignore[call-arg]
             **self.optimizer_kwargs,
         )
