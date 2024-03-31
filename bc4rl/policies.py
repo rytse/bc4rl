@@ -3,12 +3,9 @@ from typing import Any, Dict, List, Optional, Type, Union
 import torch.nn as nn
 import torch.optim as optim
 from gymnasium import spaces
-from stable_baselines3.common.torch_layers import (
-    BaseFeaturesExtractor,
-    CombinedExtractor,
-    FlattenExtractor,
-    NatureCNN,
-)
+from stable_baselines3.common.torch_layers import (BaseFeaturesExtractor,
+                                                   CombinedExtractor,
+                                                   FlattenExtractor, NatureCNN)
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import SACPolicy
 
