@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 
 import numpy as np
 import torch
@@ -137,7 +137,6 @@ class BSAC(SAC):
             self.actor.optimizer,
             self.critic.optimizer,
             self.policy.encoder_optimizer,
-            # self.bisim_critic_optimizer, # momentum breaks critic training
         ]
         if self.ent_coef_optimizer is not None:
             optimizers += [self.ent_coef_optimizer]
@@ -305,24 +304,11 @@ class BSAC(SAC):
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
 
-    # def _excluded_save_params(self) -> List[str]:
-    #     return super()._excluded_save_params() + [
-    #         "actor",
-    #         "critic",
-    #         "critic_target",
-    #         "bisim_critic",
-    #     ]
+    def _excluded_save_params(self) -> List[str]:
+        return super()._excluded_save_params() + ["bisim_critic"]
 
-    # def _get_torch_save_params(self) -> Tuple[List[str], List[str]]:
-    #     state_dicts = [
-    #         "policy",
-    #         "actor.optimizer",
-    #         "critic.optimizer",
-    #         "bisim_critic_optimizer",
-    #     ]
-    #     if self.ent_coef_optimizer is not None:
-    #         saved_pytorch_variables = ["log_ent_coef"]
-    #         state_dicts.append("ent_coef_optimizer")
-    #     else:
-    #         saved_pytorch_variables = ["ent_coef_tensor"]
-    #     return state_dicts, saved_pytorch_variables
+    def _get_torch_save_params(self) -> Tuple[List[str], List[str]]:
+        state_dicts, saved_pytorch_variables = super()._get_torch_save_params()
+        state_dicts.append("bisim_critic")
+        state_dicts.append("bisim_critic_optimizer")
+        return state_dicts, saved_pytorch_variables
