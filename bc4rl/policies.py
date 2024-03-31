@@ -19,6 +19,9 @@ class BSACPolicy(SACPolicy):
     optimized with the critic, rather than the actor.
     """
 
+    encoder: BaseFeaturesExtractor
+    encoder_optimizer: optim.Optimizer
+
     def __init__(
         self,
         observation_space: spaces.Space,
@@ -66,15 +69,25 @@ class BSACPolicy(SACPolicy):
         )
 
         self.actor = self.make_actor(features_extractor=self.encoder)
+        actor_params = [
+            param
+            for name, param in self.actor.named_parameters()
+            if "features_extractor" not in name
+        ]
         self.actor.optimizer = self.optimizer_class(
-            self.actor.parameters(),
+            actor_params
             lr=lr_schedule(1),  # type: ignore[call-arg]
             **self.optimizer_kwargs,
         )
 
         self.critic = self.make_critic(features_extractor=self.encoder)
+        critic_params = [
+            param
+            for name, param in self.critic.named_parameters()
+            if "features_extractor" not in name
+        ]
         self.critic.optimizer = self.optimizer_class(
-            self.critic.parameters(),
+            critic_params, 
             lr=lr_schedule(1),  # type: ignore[call-arg]
             **self.optimizer_kwargs,
         )
@@ -82,14 +95,6 @@ class BSACPolicy(SACPolicy):
         # Critic target should not share the features extractor with critic
         self.critic_target = self.make_critic(features_extractor=None)
         self.critic_target.load_state_dict(self.critic.state_dict())
-
-        # Not needed?
-        # self.critic_target = self.make_critic(features_extractor=None)
-        # self.critic_target.features_extractor.load_state_dict(self.encoder.state_dict())
-        # for i in range(self.critic_target.n_critics):
-        #     self.critic_target.q_networks[i].load_state_dict(
-        #         self.critic.q_networks[i].state_dict()
-        #     )
 
         # Target networks should always be in eval mode
         self.critic_target.set_training_mode(False)
