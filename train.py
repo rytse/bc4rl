@@ -10,8 +10,8 @@ from experiments.envs import get_env
 
 LOG_DIR = Path("logs")
 
-N_TRAIN_TIME_STEPS = 500_000
-N_CKPT_TIME_STEPS = N_TRAIN_TIME_STEPS // 10
+N_TRAIN_STEPS = 500_000
+CKPT_RATIO = 10
 
 
 @click.command()
@@ -20,7 +20,17 @@ N_CKPT_TIME_STEPS = N_TRAIN_TIME_STEPS // 10
 @click.argument("env-name", type=str)
 @click.option("-d", "--device", type=str, default="cuda:0", required=False)
 @click.option("-s", "--log-suffix", type=str, default="", required=False)
-def main(algo_name: str, policy_type: str, env_name: str, device: str, log_suffix: str):
+@click.option("-n", "--n-train-steps", type=int, default=N_TRAIN_STEPS, required=False)
+@click.option("-c", "--ckpt-ratio", type=int, default=CKPT_RATIO, required=False)
+def main(
+    algo_name: str,
+    policy_type: str,
+    env_name: str,
+    device: str,
+    log_suffix: str,
+    n_train_steps: int,
+    ckpt_ratio: int,
+):
     log_dir = LOG_DIR / (
         f"{algo_name}_{policy_type}_{env_name.replace('/', '_')}"
         + (f"_{log_suffix}" if len(log_suffix) > 0 else "")
@@ -35,7 +45,7 @@ def main(algo_name: str, policy_type: str, env_name: str, device: str, log_suffi
     train_env, eval_env = get_env(env_name)
 
     ckpt_cb = CheckpointCallback(
-        save_freq=N_CKPT_TIME_STEPS,
+        save_freq=n_train_steps // ckpt_ratio,
         save_path=str(log_dir),
         name_prefix="rl_model",
     )
@@ -43,7 +53,7 @@ def main(algo_name: str, policy_type: str, env_name: str, device: str, log_suffi
         eval_env,
         best_model_save_path=str(log_dir),
         log_path=str(log_dir),
-        eval_freq=N_CKPT_TIME_STEPS,
+        eval_freq=n_train_steps // ckpt_ratio,
         deterministic=True,
     )
 
@@ -54,7 +64,7 @@ def main(algo_name: str, policy_type: str, env_name: str, device: str, log_suffi
         algo.set_parameters(str(best_path))
 
     algo.learn(
-        total_timesteps=N_TRAIN_TIME_STEPS,
+        total_timesteps=n_train_steps,
         callback=[ckpt_cb, eval_cb],
         progress_bar=True,
     )
