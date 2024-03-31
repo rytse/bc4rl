@@ -11,7 +11,7 @@ from experiments.envs import get_env
 LOG_DIR = Path("logs")
 
 N_TRAIN_STEPS = 500_000
-CKPT_RATIO = 10
+CKPT_RATIO = 100
 
 
 @click.command()
@@ -44,8 +44,9 @@ def main(
 
     train_env, eval_env = get_env(env_name)
 
+    cb_freq = max(n_train_steps // ckpt_ratio // eval_env.num_envs, 1)
     ckpt_cb = CheckpointCallback(
-        save_freq=n_train_steps // ckpt_ratio,
+        save_freq=cb_freq,
         save_path=str(log_dir),
         name_prefix="rl_model",
     )
@@ -53,7 +54,8 @@ def main(
         eval_env,
         best_model_save_path=str(log_dir),
         log_path=str(log_dir),
-        eval_freq=n_train_steps // ckpt_ratio,
+        eval_freq=cb_freq,
+        n_eval_episodes=5,
         deterministic=True,
     )
 
@@ -70,14 +72,14 @@ def main(
     )
 
     # Eval, record
-    obs, _ = eval_env.reset()
+    obs = eval_env.reset()
     done = False
     frames = []
     while not done:
         obs = np.array(obs)
         action, _ = algo.predict(obs, deterministic=True)
-        obs, _, terminated, truncated, _ = eval_env.step(action)
-        done = terminated or truncated
+        obs, _, dones, _ = eval_env.step(action)
+        done = dones.any()
         frames.append(eval_env.render())
     eval_env.close()  # https://github.com/google-deepmind/mujoco/issues/1186
 

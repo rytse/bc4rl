@@ -7,6 +7,7 @@ from gymnasium.wrappers.pixel_observation import PixelObservationWrapper
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.type_aliases import GymEnv
+from stable_baselines3.common.vec_env import VecMonitor
 
 
 def get_pendulum_env() -> Tuple[GymEnv, GymEnv]:
@@ -43,9 +44,12 @@ def get_lunarlander_env() -> Tuple[GymEnv, GymEnv]:
     train_env = make_vec_env(
         "LunarLander-v2", n_envs=8, env_kwargs={"continuous": True}
     )
-    eval_env = Monitor(
-        gym.make("LunarLander-v2", continuous=True, render_mode="rgb_array")
+    eval_env = make_vec_env(
+        "LunarLander-v2",
+        n_envs=8,
+        env_kwargs={"continuous": True, "render_mode": "rgb_array"},
     )
+
     return train_env, eval_env
 
 
