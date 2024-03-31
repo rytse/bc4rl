@@ -1,4 +1,3 @@
-# import time
 from dataclasses import dataclass
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
 
@@ -14,7 +13,7 @@ from stable_baselines3.common.type_aliases import GymEnv, Schedule
 from stable_baselines3.common.utils import polyak_update
 from stable_baselines3.sac import SAC
 
-from .bisim import BisimLoss, GradientPenalty
+from .bisim import bisim_loss, gradient_penalty
 from .policies import BSACCnnPolicy, BSACMlpPolicy, BSACMultiInputPolicy, BSACPolicy
 
 
@@ -93,20 +92,14 @@ class BSAC(SAC):
             optimize_memory_usage=optimize_memory_usage,
         )
 
-        assert isinstance(self.policy, BSACPolicy)
-
-        self.bisim_loss = torch.jit.script(
-            BisimLoss(
-                self.policy.encoder,
-                self.policy.encoder.features_dim,
-                self.bisim_config.C,
-                self.bisim_config.K,
-            )
-        ).to(device)
-        self.grad_penalty = torch.jit.script(
-            GradientPenalty(
-                self.policy.encoder, self.bisim_loss.critic, self.bisim_config.K
-            )
+        self.bisim_critic = nn.Sequential(
+            nn.Linear(self.policy.actor.features_extractor.features_dim, 256),
+            nn.SiLU(),
+            nn.Linear(256, 128),
+            nn.SiLU(),
+            nn.Linear(128, 128),
+            nn.SiLU(),
+            nn.Linear(128, 1),
         ).to(device)
 
         # Bisim optimization works better without momentum, we use vanilla SGD
@@ -117,7 +110,7 @@ class BSAC(SAC):
         else:
             raise ValueError("Invalid learning rate")
         self.bisim_critic_optimizer = optim.SGD(
-            self.bisim_loss.critic.parameters(), lr=sgd_lr
+            self.bisim_critic.parameters(), lr=sgd_lr
         )
 
     def train(self, gradient_steps: int, batch_size: int = 64) -> None:
@@ -142,7 +135,6 @@ class BSAC(SAC):
         bs_critic_losses, encoder_losses, actor_losses, critic_losses = [], [], [], []
 
         for gradient_step in range(gradient_steps):
-            # start_train_time = time.time()
             # Sample replay buffer
             assert self.replay_buffer is not None
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
@@ -159,35 +151,43 @@ class BSAC(SAC):
             assert isinstance(replay_next_obs, torch.Tensor)
 
             # Optimize the bisim critic
-            # start_bisim_time = time.time()
             for _ in range(self.bisim_config.critic_training_steps):
-                bs_loss = self.bisim_loss(replay_obs, replay_next_obs, replay_rewards)
-                grad_loss = self.grad_penalty(replay_obs)
-                bisim_critic_loss = bs_loss + self.bisim_config.grad_penalty * grad_loss
+                bs_loss = bisim_loss(
+                    replay_obs.detach(),
+                    replay_next_obs.detach(),
+                    replay_rewards.detach(),
+                    self.policy.encoder,
+                    self.bisim_critic,
+                    self.bisim_config.C,
+                    self.bisim_config.K,
+                )
+                grad_loss = gradient_penalty(
+                    self.policy.encoder,
+                    self.bisim_critic,
+                    replay_obs.detach(),
+                    self.bisim_config.K,
+                )
+                critic_loss = bs_loss + self.bisim_config.grad_penalty * grad_loss
 
                 self.bisim_critic_optimizer.zero_grad()
-                bisim_critic_loss.backward()
+                critic_loss.backward()
                 self.bisim_critic_optimizer.step()
-                bs_critic_losses.append(bisim_critic_loss.item())
-            # stop_bisim_time = time.time()
+                bs_critic_losses.append(bs_loss.item())
 
             # Optimize encoder
-            # start_encoder_time = time.time()
-            bs_loss = self.bisim_loss(replay_obs, replay_next_obs, replay_rewards)
-            # bs_loss = bisim_loss(
-            #     replay_obs,  # .detach(),
-            #     replay_next_obs,  # .detach(),
-            #     replay_rewards,  # .detach(),
-            #     self.policy.encoder,
-            #     self.bisim_critic,
-            #     self.bisim_config.C,
-            #     self.bisim_config.K,
-            # )
+            bs_loss = bisim_loss(
+                replay_obs.detach(),
+                replay_next_obs.detach(),
+                replay_rewards.detach(),
+                self.policy.encoder,
+                self.bisim_critic,
+                self.bisim_config.C,
+                self.bisim_config.K,
+            )
             self.policy.encoder_optimizer.zero_grad()
             bs_loss.backward()
             self.policy.encoder_optimizer.step()
             encoder_losses.append(bs_loss.item())
-            # stop_encoder_time = time.time()
 
             # We need to sample because `log_std` may have changed between two gradient steps
             if self.use_sde:
@@ -279,10 +279,6 @@ class BSAC(SAC):
                 )
                 # Copy running stats, see GH issue #996
                 polyak_update(self.batch_norm_stats, self.batch_norm_stats_target, 1.0)
-
-            # print(f"Total train loop time: {time.time() - start_train_time}s")
-            # print(f"Bisim critic time: {stop_bisim_time - start_bisim_time}s")
-            # print(f"Encoder time: {stop_encoder_time - start_encoder_time}s")
 
         self._n_updates += gradient_steps
 

@@ -1,85 +1,77 @@
-from typing import List, Optional
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
-class BisimLoss(nn.Module):
-    def __init__(
-        self,
-        encoder: nn.Module,
-        z_dim: int,
-        c: float,
-        K: float,
-        width: int = 128,
-        depth: int = 2,
-    ):
-        super().__init__()
+def bisim_loss(
+    preprocessed_obs: torch.Tensor,
+    preprocessed_next_obs: torch.Tensor,
+    rewards: torch.Tensor,
+    encoder: nn.Module,
+    critic: nn.Module,
+    c: float,
+    K: float,
+) -> torch.Tensor:
+    """
+    Estimates the difference between the L2 norm of the encoded space Z and the bisimulation
+    distance as approximated by the critic.
 
-        self.encoder = encoder
-        self.z_dim = z_dim
-        self.c = c
-        self.K = K
+    :param replay_buffer: (ReplayBuffer) the replay buffer
+    :param encoder: (nn.Module) the encoder
+    :param critic: (nn.Module) the critic
+    :param c: (float) the trade-off parameter between reward difference and transition difference
+    :param K: (float) the Lipschitz constant of the critic
+    :n_samples: (int) the number of samples to use for the estimation
 
-        self.layers = nn.ModuleList([nn.Linear(z_dim, width), nn.ReLU()])
-        for _ in range(depth):
-            self.layers.extend([nn.Linear(width, width), nn.ReLU()])
-        self.layers.append(nn.Linear(width, 1))
-        self.critic = nn.Sequential(*self.layers)
+    :return: (torch.Tensor) the bisimulation loss
+    """
+    # obs = replay_samples.observations
+    # next_obs = replay_samples.next_observations
 
-    def forward(
-        self,
-        preprocessed_obs: torch.Tensor,
-        preprocessed_next_obs: torch.Tensor,
-        rewards: torch.Tensor,
-    ) -> torch.Tensor:
-        zs = self.encoder(preprocessed_obs)  # (n_samples, z_dim)
-        next_zs = self.encoder(preprocessed_next_obs)  # (n_samples, z_dim)
-        critique = self.critic(next_zs)  # (n_samples, 1)
+    # pre_obs = preprocess_obs(obs, observation_space)
+    # pre_next = preprocess_obs(next_obs, observation_space)
 
-        zs_i = zs[:, None, :]
-        zs_j = zs[None, :, :]
+    zs = encoder(preprocessed_obs)  # (n_samples, z_dim)
+    next_zs = encoder(preprocessed_next_obs)  # (n_samples, z_dim)
+    critique = critic(next_zs)  # (n_samples, 1)
 
-        critique_i = critique[:, None, :]
-        critique_j = critique[None, :, :]
+    zs_i = zs[:, None, :]
+    zs_j = zs[None, :, :]
 
-        rewards_i = rewards[:, None]
-        rewards_j = rewards[None, :]
+    critique_i = critique[:, None, :]
+    critique_j = critique[None, :, :]
 
-        encoded_distance = torch.norm(zs_i - zs_j, dim=2).unsqueeze(-1)  # TODO try L1
+    rewards_i = rewards[:, None]
+    rewards_j = rewards[None, :]
 
-        reward_distance = torch.abs(rewards_i - rewards_j)
-        critique_distance = torch.abs(critique_i - critique_j)  # TODO check abs?
-        bisim_distance = (
-            1 - self.c
-        ) * reward_distance + self.c / self.K * critique_distance
+    encoded_distance = torch.norm(zs_i - zs_j, dim=2).unsqueeze(-1)  # TODO try L1
 
-        return F.mse_loss(encoded_distance, bisim_distance)
+    reward_distance = torch.abs(rewards_i - rewards_j)
+    critique_distance = torch.abs(critique_i - critique_j)  # TODO check abs?
+    bisim_distance = (1 - c) * reward_distance + c / K * critique_distance
+
+    return F.mse_loss(encoded_distance, bisim_distance)
 
 
-class GradientPenalty(nn.Module):
-    def __init__(self, encoder: nn.Module, critic: nn.Module, K: float):
-        super().__init__()
+def gradient_penalty(
+    encoder: nn.Module, critic: nn.Module, data: torch.Tensor, K: float
+) -> torch.Tensor:
+    """
+    Computes the gradient penalty for the critic, where the target norm is K.
 
-        self.encoder = encoder
-        self.critic = critic
-        self.K = K
+    :param encoder: (nn.Module) the encoder
+    :param critic: (nn.Module) the critic
+    :param data: (torch.Tensor) input data
+    :param K: (float) target gradient norm
 
-    def forward(self, data: torch.Tensor) -> torch.Tensor:
-        s = data.clone().detach().requires_grad_(True)
-        z = self.encoder(s).clone().detach().requires_grad_(True)
+    :return: (torch.Tensor) gradient penalty
+    """
+    s = data.clone().detach().requires_grad_(True)
+    z = encoder(s).clone().detach().requires_grad_(True)
 
-        critique = self.critic(z)
-        grad = torch.autograd.grad(
-            [critique],
-            [z],
-            grad_outputs=torch.jit.annotate(
-                Optional[List[Optional[torch.Tensor]]], [torch.ones_like(critique)]
-            ),
-            create_graph=True,
-        )[0]
+    critique = critic(z)
+    grad = torch.autograd.grad(
+        critique, z, grad_outputs=torch.ones_like(critique), create_graph=True
+    )[0]
 
-        assert isinstance(grad, torch.Tensor)
-
-        return (grad.norm(2, dim=1) - self.K).pow(2).mean()
+    return (grad.norm(2, dim=1) - K).pow(2).mean()
