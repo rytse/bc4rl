@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from rl_zoo3 import linear_schedule
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.preprocessing import preprocess_obs
@@ -42,8 +43,8 @@ class BSAC(SAC):
         env: Union[GymEnv, str],
         bisim_config: BisimConfig,
         sac_lr: Union[float, Schedule] = 3e-4,
-        bisim_lr: Optional[float] = None,
-        buffer_size: int = 1_000_000,
+        bisim_lr: Optional[Union[str, float]] = None,
+        buffer_size: int = 1_000_000,  # 1e6
         learning_starts: int = 100,
         batch_size: int = 256,
         tau: float = 0.005,
@@ -54,6 +55,9 @@ class BSAC(SAC):
         replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
         optimize_memory_usage: bool = False,
+        ent_coef: Union[str, float] = "auto",
+        target_update_interval: int = 1,
+        target_entropy: Union[str, float] = "auto",
         use_sde: bool = False,
         sde_sample_freq: int = -1,
         use_sde_at_warmup: bool = False,
@@ -64,36 +68,46 @@ class BSAC(SAC):
         verbose: int = 0,
         seed: Optional[int] = None,
         device: Union[torch.device, str] = "auto",
+        _init_setup_model: bool = True,
     ):
         policy_kwargs = policy_kwargs if policy_kwargs is not None else {}
         policy_kwargs["share_features_extractor"] = True
 
         self.bisim_config = bisim_config
 
+        if isinstance(sac_lr, str):
+            lr_str, lr_val = sac_lr.split("_")
+            assert lr_str == "lin"
+            sac_lr = linear_schedule(float(lr_val))
+
         super().__init__(
             policy,
             env,
             sac_lr,
             buffer_size,
-            learning_starts,
-            batch_size,
-            tau,
-            gamma,
-            train_freq,
-            gradient_steps,
-            action_noise,
+            learning_starts=learning_starts,
+            batch_size=batch_size,
+            tau=tau,
+            gamma=gamma,
+            train_freq=train_freq,
+            gradient_steps=gradient_steps,
+            action_noise=action_noise,
             replay_buffer_class=replay_buffer_class,
             replay_buffer_kwargs=replay_buffer_kwargs,
-            policy_kwargs=policy_kwargs,
-            stats_window_size=stats_window_size,
-            tensorboard_log=tensorboard_log,
-            verbose=verbose,
-            device=device,
-            seed=seed,
+            optimize_memory_usage=optimize_memory_usage,
+            ent_coef=ent_coef,
+            target_update_interval=target_update_interval,
+            target_entropy=target_entropy,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
             use_sde_at_warmup=use_sde_at_warmup,
-            optimize_memory_usage=optimize_memory_usage,
+            stats_window_size=stats_window_size,
+            tensorboard_log=tensorboard_log,
+            policy_kwargs=policy_kwargs,
+            verbose=verbose,
+            seed=seed,
+            device=device,
+            _init_setup_model=_init_setup_model,
         )
 
         if bisim_critic_kwargs is None:
