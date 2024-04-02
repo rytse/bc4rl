@@ -118,8 +118,8 @@ class BSAC(SAC):
         self,
         feature_dim: int,
         width: int = 32,
-        depth: int = 2,
-        act: Type[nn.Module] = nn.SiLU,
+        depth: int = 1,
+        act: Type[nn.Module] = nn.ReLU,
     ) -> nn.Module:
         layers = [nn.Linear(feature_dim, width), act()]
         for _ in range(depth):
@@ -152,23 +152,23 @@ class BSAC(SAC):
             assert self.replay_buffer is not None
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
             replay_obs = preprocess_obs(
-                replay_data.observations,
+                replay_data.observations.clone().detach(),
                 self.replay_buffer.observation_space,
             )
             replay_next_obs = preprocess_obs(
-                replay_data.next_observations,
+                replay_data.next_observations.clone().detach(),
                 self.replay_buffer.observation_space,
             )
-            replay_rewards = replay_data.rewards
+            replay_rewards = replay_data.rewards.clone().detach()
             assert isinstance(replay_obs, torch.Tensor)
             assert isinstance(replay_next_obs, torch.Tensor)
 
             # Optimize the bisim critic
             for _ in range(self.bisim_config.critic_training_steps):
                 bs_loss = bisim_loss(
-                    replay_obs.detach(),
-                    replay_next_obs.detach(),
-                    replay_rewards.detach(),
+                    replay_obs.clone().detach().requires_grad_(),
+                    replay_next_obs.clone().detach().requires_grad_(),
+                    replay_rewards.clone().detach().requires_grad_(),
                     self.policy.encoder,
                     self.bisim_critic,
                     self.bisim_config.C,
@@ -177,7 +177,7 @@ class BSAC(SAC):
                 grad_loss = gradient_penalty(
                     self.policy.encoder,
                     self.bisim_critic,
-                    replay_obs.detach(),
+                    replay_obs.clone().detach().requires_grad_(),
                     self.bisim_config.K,
                 )
                 critic_loss = bs_loss + self.bisim_config.grad_penalty * grad_loss
@@ -189,9 +189,9 @@ class BSAC(SAC):
 
             # Optimize encoder
             bs_loss = bisim_loss(
-                replay_obs.detach(),
-                replay_next_obs.detach(),
-                replay_rewards.detach(),
+                replay_obs.clone().detach().requires_grad_(),
+                replay_next_obs.clone().detach().requires_grad_(),
+                replay_rewards.clone().detach().requires_grad_(),
                 self.policy.encoder,
                 self.bisim_critic,
                 self.bisim_config.C,
