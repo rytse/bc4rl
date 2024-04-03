@@ -36,7 +36,7 @@ class BSAC(SAC):
         self,
         policy: Union[str, Type[BSACPolicy]],
         env: Union[GymEnv, str],
-        bisim_kwargs: Dict[str, Union[float, int]],
+        bisim_kwargs: Union[Dict[str, Union[float, int]], str],
         sac_lr: Union[float, Schedule] = 3e-4,
         bisim_lr: Optional[Union[str, float]] = None,
         buffer_size: int = 1_000_000,  # 1e6
@@ -106,7 +106,13 @@ class BSAC(SAC):
             _init_setup_model=_init_setup_model,
         )
 
-        self.bisim_kwargs = bisim_kwargs
+        if isinstance(bisim_kwargs, dict):
+            self.bisim_kwargs = bisim_kwargs
+        elif isinstance(bisim_kwargs, str):
+            self.bisim_kwargs = eval(bisim_kwargs)
+        else:
+            raise ValueError("Invalid bisim_kwargs")
+
         if bisim_critic_kwargs is None:
             bisim_critic_kwargs = {"feature_dim": self.policy.encoder.features_dim}
         else:
