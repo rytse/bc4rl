@@ -1,5 +1,6 @@
 import argparse
 
+import click
 import rl_zoo3
 from rl_zoo3.exp_manager import ExperimentManager
 
@@ -14,9 +15,10 @@ def main():
         argparse.Namespace(),
         "bsac",
         "LunarLanderContinuous-v2",
-        "./logs/experiment_manager_test_bsac/",
+        log_folder="./logs",
+        tensorboard_log="./logs/tensorboard",
         hyperparams={
-            "bisim_config": BisimConfig(1.0, 1.0, 10.0, 2048, 10),
+            "bisim_config": BisimConfig(1.0, 1.0, 10.0, 2048, 20),
             "policy_kwargs": {
                 "share_features_extractor": True,
                 "features_extractor_class": CustomMLP,
