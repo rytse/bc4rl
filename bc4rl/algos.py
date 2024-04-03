@@ -15,20 +15,15 @@ from stable_baselines3.common.utils import polyak_update
 from stable_baselines3.sac import SAC
 
 from .bisim import bisim_loss, gradient_penalty
+from .encoder import CustomCNN, CustomMLP
 from .policies import BSACCnnPolicy, BSACMlpPolicy, BSACMultiInputPolicy, BSACPolicy
 
 
-@dataclass
-class BisimConfig:
-    C: float
-    K: float
-    grad_penalty: float
-
-    batch_size: int
-    critic_training_steps: int
-
-
 class BSAC(SAC):
+    encoder_aliases: ClassVar[Dict[str, Type[nn.Module]]] = {
+        "CustomMLP": CustomMLP,
+        "CustomCNN": CustomCNN,
+    }
     policy_aliases: ClassVar[Dict[str, Type[BSACPolicy]]] = {
         "BSACMlpPolicy": BSACMlpPolicy,
         "BSACCnnPolicy": BSACCnnPolicy,
@@ -41,7 +36,7 @@ class BSAC(SAC):
         self,
         policy: Union[str, Type[BSACPolicy]],
         env: Union[GymEnv, str],
-        bisim_config: BisimConfig,
+        bisim_kwargs: Dict[str, Union[float, int]],
         sac_lr: Union[float, Schedule] = 3e-4,
         bisim_lr: Optional[Union[str, float]] = None,
         buffer_size: int = 1_000_000,  # 1e6
@@ -72,8 +67,9 @@ class BSAC(SAC):
     ):
         policy_kwargs = policy_kwargs if policy_kwargs is not None else {}
         policy_kwargs["share_features_extractor"] = True
-
-        self.bisim_config = bisim_config
+        policy_kwargs["features_extractor_class"] = self.encoder_aliases[
+            policy_kwargs["features_extractor_class"]
+        ]
 
         if isinstance(sac_lr, str):
             lr_str, lr_val = sac_lr.split("_")
@@ -110,6 +106,7 @@ class BSAC(SAC):
             _init_setup_model=_init_setup_model,
         )
 
+        self.bisim_kwargs = bisim_kwargs
         if bisim_critic_kwargs is None:
             bisim_critic_kwargs = {"feature_dim": self.policy.encoder.features_dim}
         else:
@@ -178,23 +175,23 @@ class BSAC(SAC):
             assert isinstance(replay_next_obs, torch.Tensor)
 
             # Optimize the bisim critic
-            for _ in range(self.bisim_config.critic_training_steps):
+            for _ in range(int(self.bisim_kwargs["critic_training_steps"])):
                 bs_loss = bisim_loss(
                     replay_obs.clone().detach().requires_grad_(),
                     replay_next_obs.clone().detach().requires_grad_(),
                     replay_rewards.clone().detach().requires_grad_(),
                     self.policy.encoder,
                     self.bisim_critic,
-                    self.bisim_config.C,
-                    self.bisim_config.K,
+                    self.bisim_kwargs["C"],
+                    self.bisim_kwargs["K"],
                 )
                 grad_loss = gradient_penalty(
                     self.policy.encoder,
                     self.bisim_critic,
                     replay_obs.clone().detach().requires_grad_(),
-                    self.bisim_config.K,
+                    self.bisim_kwargs["K"],
                 )
-                critic_loss = bs_loss + self.bisim_config.grad_penalty * grad_loss
+                critic_loss = bs_loss + self.bisim_kwargs["grad_penalty"] * grad_loss
 
                 self.bisim_critic_optimizer.zero_grad()
                 critic_loss.backward()
@@ -208,8 +205,8 @@ class BSAC(SAC):
                 replay_rewards.clone().detach().requires_grad_(),
                 self.policy.encoder,
                 self.bisim_critic,
-                self.bisim_config.C,
-                self.bisim_config.K,
+                self.bisim_kwargs["C"],
+                self.bisim_kwargs["K"],
             )
             self.policy.encoder_optimizer.zero_grad()
             bs_loss.backward()

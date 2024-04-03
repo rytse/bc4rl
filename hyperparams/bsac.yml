@@ -3,7 +3,7 @@ LunarLanderContinuous-v2:
   n_envs: 8
   policy: 'BSACMlpPolicy'
   batch_size: 256
-  sac_lr: lin_7.3e-4
+  sac_lr: lin_2.5e-4
   bisim_lr: 1.0e-4
   buffer_size: 1000000
   ent_coef: 'auto'
@@ -12,4 +12,5 @@ LunarLanderContinuous-v2:
   train_freq: 1
   gradient_steps: 1
   learning_starts: 10000
-  policy_kwargs: "dict(net_arch=[400, 300])"
+  bisim_kwargs: "dict(C=1.0, K=1.0, grad_penalty=10.0, critic_training_steps=20)"
+  policy_kwargs: "dict(share_features_extractor=True, features_extractor_class='CustomMLP', net_arch=[400, 300])"
