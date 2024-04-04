@@ -30,7 +30,7 @@ def main(algo: str, env: str, device: str, optimize_hyperparameters: bool):
         algo,
         env,
         log_folder="./logs",
-        tensorboard_log="./logs/tensorboard",
+        tensorboard_log="./tensorboard",
         optimize_hyperparameters=optimize_hyperparameters,
         n_trials=1_000,
         n_jobs=1,
