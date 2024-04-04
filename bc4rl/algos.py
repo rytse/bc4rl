@@ -1,4 +1,4 @@
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import numpy as np
 import torch
@@ -9,13 +9,15 @@ from rl_zoo3 import linear_schedule
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.preprocessing import preprocess_obs
-from stable_baselines3.common.type_aliases import GymEnv, Schedule
+from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import polyak_update
 from stable_baselines3.sac import SAC
 
 from .bisim import bisim_loss, gradient_penalty
 from .encoder import CustomCNN, CustomMLP
 from .policies import BSACCnnPolicy, BSACMlpPolicy, BSACMultiInputPolicy, BSACPolicy
+
+SelfBSAC = TypeVar("SelfBSAC", bound="BSAC")
 
 
 class BSAC(SAC):
@@ -322,6 +324,24 @@ class BSAC(SAC):
         self.logger.record("train/bisim_critic_loss", np.mean(bc_losses))
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
+
+    def learn(
+        self: SelfBSAC,
+        total_timesteps: int,
+        callback: MaybeCallback = None,
+        log_interval: int = 4,
+        tb_log_name: str = "BSAC",
+        reset_num_timesteps: bool = True,
+        progress_bar: bool = False,
+    ) -> SelfBSAC:
+        return super().learn(
+            total_timesteps=total_timesteps,
+            callback=callback,
+            log_interval=log_interval,
+            tb_log_name=tb_log_name,
+            reset_num_timesteps=reset_num_timesteps,
+            progress_bar=progress_bar,
+        )
 
     def _excluded_save_params(self) -> List[str]:
         return super()._excluded_save_params() + ["bisim_critic"]

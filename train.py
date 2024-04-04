@@ -1,4 +1,5 @@
 import argparse
+from pathlib import Path
 
 import click
 from rl_zoo3 import ALGOS
@@ -18,6 +19,12 @@ def main(algo: str, env: str, device: str, optimize_hyperparameters: bool):
     ALGOS["bsac"] = BSAC
     HYPERPARAMS_SAMPLER["bsac"] = sample_bsac_params
 
+    custom_hyperparam_path = Path(f"./hyperparams/{algo}.yml")
+    if custom_hyperparam_path.exists():
+        custom_hyperparam_path = str(custom_hyperparam_path)
+    else:
+        custom_hyperparam_path = None
+
     exp_manager = ExperimentManager(
         argparse.Namespace(),
         algo,
@@ -28,8 +35,9 @@ def main(algo: str, env: str, device: str, optimize_hyperparameters: bool):
         n_trials=1_000,
         n_jobs=1,
         log_interval=10,
+        show_progress=True,
         device=device,
-        config=f"./hyperparams/{algo}.yml",
+        config=custom_hyperparam_path,
     )
 
     results = exp_manager.setup_experiment()
