@@ -1,16 +1,29 @@
 from typing import Any, Dict, List, Optional, Type, Union
 
+import torch
 import torch.nn as nn
 import torch.optim as optim
 from gymnasium import spaces
-from stable_baselines3.common.torch_layers import (
-    BaseFeaturesExtractor,
-    CombinedExtractor,
-    FlattenExtractor,
-    NatureCNN,
-)
+from stable_baselines3.common.policies import ContinuousCritic
+from stable_baselines3.common.torch_layers import (BaseFeaturesExtractor,
+                                                   CombinedExtractor,
+                                                   FlattenExtractor, NatureCNN)
 from stable_baselines3.common.type_aliases import Schedule
-from stable_baselines3.sac.policies import SACPolicy
+from stable_baselines3.sac.policies import Actor, SACPolicy
+
+
+class BSACActor(Actor):
+    """
+    Actor with frozen encoder gradients
+    """
+
+    def extract_features(
+        self,
+        obs: Union[torch.Tensor, Dict[str, torch.Tensor]],
+        features_extractor: BaseFeaturesExtractor,
+    ) -> torch.Tensor:
+        with torch.no_grad():
+            return super().extract_features(obs, features_extractor)
 
 
 class BSACPolicy(SACPolicy):
@@ -18,6 +31,10 @@ class BSACPolicy(SACPolicy):
     Policy class with actor, critic, and shared feature extractor where the feature extractor is
     optimized with the critic, rather than the actor.
     """
+
+    actor: BSACActor
+    critic: ContinuousCritic
+    critic_target: ContinuousCritic
 
     encoder: BaseFeaturesExtractor
     encoder_optimizer: optim.Optimizer
@@ -60,6 +77,12 @@ class BSACPolicy(SACPolicy):
             share_features_extractor,
         )
 
+    def make_actor(self, features_extractor: BaseFeaturesExtractor) -> BSACActor:
+        actor_kwargs = self._update_features_extractor(
+            self.actor_kwargs, features_extractor
+        )
+        return BSACActor(**actor_kwargs).to(self.device)
+
     def _build(self, lr_schedule: Schedule) -> None:
         self.encoder = self.make_features_extractor()
         self.encoder_optimizer = self.optimizer_class(
@@ -98,6 +121,12 @@ class BSACPolicy(SACPolicy):
 
         # Target networks should always be in eval mode
         self.critic_target.set_training_mode(False)
+
+    def _predict(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
+        return super()._predict(obs, deterministic)
+
+    def forward(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
+        return super().forward(obs, deterministic)
 
 
 BSACMlpPolicy = BSACPolicy
