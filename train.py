@@ -13,7 +13,7 @@ from bc4rl.samplers import sample_bsac_params
 @click.argument("algo", type=str, default="bsac")
 @click.argument("env", type=str, default="LunarLanderContinuous-v2")
 @click.option("-d", "--device", type=str, default="cuda:0")
-@click.option("-h", "--optimize_hyperparameters", is_flag=False)
+@click.option("-h", "--optimize_hyperparameters", is_flag=True)
 def main(algo: str, env: str, device: str, optimize_hyperparameters: bool):
     ALGOS["bsac"] = BSAC
     HYPERPARAMS_SAMPLER["bsac"] = sample_bsac_params
@@ -26,7 +26,7 @@ def main(algo: str, env: str, device: str, optimize_hyperparameters: bool):
         tensorboard_log="./logs/tensorboard",
         optimize_hyperparameters=optimize_hyperparameters,
         n_trials=1_000,
-        n_jobs=2,
+        n_jobs=1,
         log_interval=10,
         device=device,
         config=f"./hyperparams/{algo}.yml",

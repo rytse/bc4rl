@@ -14,6 +14,9 @@ def sample_bsac_params(
     """
     hyperparams = sample_sac_params(trial, n_actions, n_envs, additional_args)
 
+    hyperparams["bisim_kwargs"] = dict(
+        C=1.0, K=1.0, grad_penalty=10.0, critic_training_steps=1
+    )
     hyperparams["policy_kwargs"]["share_features_extractor"] = True
     hyperparams["policy_kwargs"]["features_extractor_class"] = CustomMLP
 
@@ -23,5 +26,9 @@ def sample_bsac_params(
 
     bisim_lr = trial.suggest_float("bisim_lr", 1e-5, 1e-2, log=True)
     hyperparams["bisim_lr"] = bisim_lr
+
+    hyperparams["ent_coef"] = trial.suggest_categorical(
+        "ent_coef", ["auto", 0.5, 0.1, 0.05, 0.01, 0.0001]
+    )
 
     return hyperparams
