@@ -11,6 +11,7 @@ def bisim_loss(
     critic: nn.Module,
     c: float,
     K: float,
+    n_samp: int = 128,
 ) -> torch.Tensor:
     """
     Estimates the difference between the L2 norm of the encoded space Z and the bisimulation
@@ -25,27 +26,23 @@ def bisim_loss(
 
     :return: (torch.Tensor) the bisimulation loss
     """
-    # obs = replay_samples.observations
-    # next_obs = replay_samples.next_observations
-
-    # pre_obs = preprocess_obs(obs, observation_space)
-    # pre_next = preprocess_obs(next_obs, observation_space)
-
     zs = encoder(preprocessed_obs)  # (n_samples, z_dim)
     next_zs = encoder(preprocessed_next_obs)  # (n_samples, z_dim)
     critique = critic(next_zs)  # (n_samples, 1)
 
-    zs_i = zs[:, None, :]
-    zs_j = zs[None, :, :]
+    # Randomly sample n_samp pairs of zs and critique
+    assert n_samp <= zs.shape[0]
+    idx_i = torch.randperm(zs.shape[0])[:n_samp]
+    idx_j = torch.randperm(zs.shape[0])[:n_samp]
 
-    critique_i = critique[:, None, :]
-    critique_j = critique[None, :, :]
+    zs_i = zs[idx_i]
+    zs_j = zs[idx_j]
+    critique_i = critique[idx_i]
+    critique_j = critique[idx_j]
+    rewards_i = rewards[idx_i]
+    rewards_j = rewards[idx_j]
 
-    rewards_i = rewards[:, None]
-    rewards_j = rewards[None, :]
-
-    encoded_distance = torch.norm(zs_i - zs_j, dim=2).unsqueeze(-1)  # TODO try L1
-
+    encoded_distance = torch.norm(zs_i - zs_j, dim=1).unsqueeze(-1)  # TODO try L1
     reward_distance = torch.abs(rewards_i - rewards_j)
     critique_distance = torch.abs(critique_i - critique_j)  # TODO check abs?
     bisim_distance = (1 - c) * reward_distance + c / K * critique_distance
