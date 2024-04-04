@@ -163,7 +163,7 @@ class BSAC(SAC):
         self._update_learning_rate(optimizers)
 
         ent_coef_losses, ent_coefs = [], []
-        bs_critic_losses, encoder_losses, actor_losses, critic_losses = [], [], [], []
+        bc_losses, enc_losses, actor_losses, critic_losses = [], [], [], []
 
         for gradient_step in range(gradient_steps):
             # Sample replay buffer
@@ -183,7 +183,7 @@ class BSAC(SAC):
 
             # Optimize the bisim critic
             for _ in range(int(self.bisim_kwargs["critic_training_steps"])):
-                bs_loss = bisim_loss(
+                bc_bs_loss = bisim_loss(
                     replay_obs.clone().detach().requires_grad_(),
                     replay_next_obs.clone().detach().requires_grad_(),
                     replay_rewards.clone().detach().requires_grad_(),
@@ -192,21 +192,23 @@ class BSAC(SAC):
                     self.bisim_kwargs["C"],
                     self.bisim_kwargs["K"],
                 )
-                grad_loss = gradient_penalty(
+                bc_grad_penalty = gradient_penalty(
                     self.policy.encoder,
                     self.bisim_critic,
                     replay_obs.clone().detach().requires_grad_(),
                     self.bisim_kwargs["K"],
                 )
-                critic_loss = bs_loss + self.bisim_kwargs["grad_penalty"] * grad_loss
+                bc_loss = (
+                    bc_bs_loss + self.bisim_kwargs["grad_penalty"] * bc_grad_penalty
+                )
 
                 self.bisim_critic_optimizer.zero_grad()
-                critic_loss.backward()
+                bc_loss.backward()
                 self.bisim_critic_optimizer.step()
-                bs_critic_losses.append(bs_loss.item())
+                bc_losses.append(bc_loss.item())
 
             # Optimize encoder
-            bs_loss = bisim_loss(
+            enc_loss = bisim_loss(
                 replay_obs.clone().detach().requires_grad_(),
                 replay_next_obs.clone().detach().requires_grad_(),
                 replay_rewards.clone().detach().requires_grad_(),
@@ -216,9 +218,9 @@ class BSAC(SAC):
                 self.bisim_kwargs["K"],
             )
             self.policy.encoder_optimizer.zero_grad()
-            bs_loss.backward()
+            enc_loss.backward()
             self.policy.encoder_optimizer.step()
-            encoder_losses.append(bs_loss.item())
+            enc_losses.append(enc_loss.item())
 
             # We need to sample because `log_std` may have changed between two gradient steps
             if self.use_sde:
@@ -317,8 +319,8 @@ class BSAC(SAC):
         self.logger.record("train/ent_coef", np.mean(ent_coefs))
         self.logger.record("train/actor_loss", np.mean(actor_losses))
         self.logger.record("train/critic_loss", np.mean(critic_losses))
-        self.logger.record("train/encoder_loss", np.mean(encoder_losses))
-        self.logger.record("train/bisim_critic_loss", np.mean(bs_critic_losses))
+        self.logger.record("train/encoder_loss", np.mean(enc_losses))
+        self.logger.record("train/bisim_critic_loss", np.mean(bc_losses))
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
 
