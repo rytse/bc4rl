@@ -67,9 +67,10 @@ class BSAC(SAC):
     ):
         policy_kwargs = policy_kwargs if policy_kwargs is not None else {}
         policy_kwargs["share_features_extractor"] = True
-        policy_kwargs["features_extractor_class"] = self.encoder_aliases[
-            policy_kwargs["features_extractor_class"]
-        ]
+        if isinstance(policy_kwargs["features_extractor_class"], str):
+            policy_kwargs["features_extractor_class"] = self.encoder_aliases[
+                policy_kwargs["features_extractor_class"]
+            ]
 
         if isinstance(sac_lr, str):
             lr_str, lr_val = sac_lr.split("_")
