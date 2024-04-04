@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 
 import numpy as np
