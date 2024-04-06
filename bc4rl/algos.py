@@ -352,8 +352,8 @@ class BSAC(SAC):
         self.logger.record("train/ent_coef", np.mean(ent_coefs))
         self.logger.record("train/actor_loss", np.mean(actor_losses))
         self.logger.record("train/critic_loss", np.mean(critic_losses))
-        self.logger.record("train/bisim_critic_loss", np.mean(bc_losses))
-        self.logger.record("train/bisim_critic_grad_penalty", np.mean(grad_penalties))
+        self.logger.record("train/bisim_loss", np.mean(bc_losses))
+        self.logger.record("train/grad_penalty", np.mean(grad_penalties))
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
 
@@ -380,6 +380,5 @@ class BSAC(SAC):
 
     def _get_torch_save_params(self) -> Tuple[List[str], List[str]]:
         state_dicts, saved_pytorch_variables = super()._get_torch_save_params()
-        state_dicts.append("bisim_critic")
-        state_dicts.append("bisim_optimizer")
+        state_dicts += ["bisim_critic", "bisim_optimizer"]
         return state_dicts, saved_pytorch_variables
