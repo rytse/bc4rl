@@ -177,14 +177,12 @@ class BSAC(SAC):
             preprocess_obs(
                 replay_data.observations.detach().requires_grad_(),
                 self.observation_space,
-                normalize_images=False,
             )
         )
         next_zs = self.policy.encoder(
             preprocess_obs(
                 replay_data.next_observations.detach().requires_grad_(),
                 self.observation_space,
-                normalize_images=False,
             )
         )
         critique = self.bisim_critic(next_zs)
@@ -220,7 +218,6 @@ class BSAC(SAC):
             preprocess_obs(
                 replay_data.observations.detach().requires_grad_(),
                 self.observation_space,
-                normalize_images=False,
             )
         )
         critique = self.bisim_critic(z)
