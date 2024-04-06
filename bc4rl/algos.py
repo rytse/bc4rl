@@ -9,6 +9,7 @@ import torch.optim as optim
 from rl_zoo3 import linear_schedule
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
+from stable_baselines3.common.policies import ContinuousCritic
 from stable_baselines3.common.preprocessing import preprocess_obs
 from stable_baselines3.common.type_aliases import (
     GymEnv,
@@ -22,7 +23,13 @@ from stable_baselines3.sac import SAC
 from bc4rl.nn import Mlp
 
 from .encoder import CustomCNN, CustomMLP
-from .policies import BSACCnnPolicy, BSACMlpPolicy, BSACMultiInputPolicy, BSACPolicy
+from .policies import (
+    BSACActor,
+    BSACCnnPolicy,
+    BSACMlpPolicy,
+    BSACMultiInputPolicy,
+    BSACPolicy,
+)
 
 SelfBSAC = TypeVar("SelfBSAC", bound="BSAC")
 
@@ -39,6 +46,9 @@ class BSAC(SAC):
     }
 
     policy: BSACPolicy
+    actor: BSACActor
+    critic: ContinuousCritic
+    critic_target: ContinuousCritic
 
     def __init__(
         self,
@@ -164,15 +174,23 @@ class BSAC(SAC):
         n_samp: int = 128,
     ) -> torch.Tensor:
         zs = self.policy.encoder(
-            preprocess_obs(replay_data.observations, self.observation_space)
+            preprocess_obs(
+                replay_data.observations.detach().requires_grad_(),
+                self.observation_space,
+                normalize_images=False,
+            )
         )
         next_zs = self.policy.encoder(
-            preprocess_obs(replay_data.next_observations, self.observation_space)
+            preprocess_obs(
+                replay_data.next_observations.detach().requires_grad_(),
+                self.observation_space,
+                normalize_images=False,
+            )
         )
         critique = self.bisim_critic(next_zs)
 
         if eval_vals is None:
-            eval_vals = replay_data.rewards
+            eval_vals = replay_data.rewards.detach().requires_grad_()
 
         # Randomly sample n_samp pairs of zs and critique
         assert n_samp <= zs.shape[0]
@@ -199,7 +217,11 @@ class BSAC(SAC):
 
     def gradient_penalty(self, replay_data: ReplayBufferSamples) -> torch.Tensor:
         z = self.policy.encoder(
-            preprocess_obs(replay_data.observations, self.observation_space)
+            preprocess_obs(
+                replay_data.observations.detach().requires_grad_(),
+                self.observation_space,
+                normalize_images=False,
+            )
         )
         critique = self.bisim_critic(z)
         grad = torch.autograd.grad(
@@ -207,7 +229,6 @@ class BSAC(SAC):
             z,
             grad_outputs=torch.ones_like(critique),
             create_graph=True,
-            retain_graph=True,
         )[0]
 
         return (grad.norm(2, dim=1) - self.bisim_kwargs["K"]).pow(2).mean()
@@ -216,10 +237,7 @@ class BSAC(SAC):
         # Switch to train mode (this affects batch norm / dropout)
         self.policy.set_training_mode(True)
         # Update optimizers learning rate
-        optimizers = [
-            self.actor.optimizer,
-            self.critic.optimizer,
-        ]
+        optimizers = [self.actor.optimizer, self.critic.optimizer]
         if self.ent_coef_optimizer is not None:
             optimizers += [self.ent_coef_optimizer]
 
@@ -232,18 +250,7 @@ class BSAC(SAC):
 
         for gradient_step in range(gradient_steps):
             # Sample replay buffer
-            assert self.replay_buffer is not None
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
-            replay_obs = preprocess_obs(
-                replay_data.observations.clone().detach(),
-                self.replay_buffer.observation_space,
-            )
-            replay_next_obs = preprocess_obs(
-                replay_data.next_observations.clone().detach(),
-                self.replay_buffer.observation_space,
-            )
-            assert isinstance(replay_obs, torch.Tensor)
-            assert isinstance(replay_next_obs, torch.Tensor)
 
             # We need to sample because `log_std` may have changed between two gradient steps
             if self.use_sde:
@@ -328,16 +335,6 @@ class BSAC(SAC):
             actor_loss.backward()
             self.actor.optimizer.step()
 
-            # Jointly optimize the encoder and bisim critic
-            bc_bs_loss = self.bisim_loss(replay_data)
-            bc_grad_penalty = self.gradient_penalty(replay_data)
-            grad_penalties.append(bc_grad_penalty.item())
-            bc_loss = bc_bs_loss + self.bisim_kwargs["grad_penalty"] * bc_grad_penalty
-            self.bisim_optimizer.zero_grad()
-            bc_loss.backward()
-            self.bisim_optimizer.step()
-            bc_losses.append(bc_loss.item())
-
             # Update target networks
             if gradient_step % self.target_update_interval == 0:
                 polyak_update(
@@ -345,6 +342,20 @@ class BSAC(SAC):
                 )
                 # Copy running stats, see GH issue #996
                 polyak_update(self.batch_norm_stats, self.batch_norm_stats_target, 1.0)
+
+            # Jointly optimize the encoder and bisim critic
+            agg_q_values = sum(current_q_values)
+            assert isinstance(agg_q_values, torch.Tensor)
+            bc_bs_loss = self.bisim_loss(
+                replay_data, agg_q_values.detach().requires_grad_()
+            )
+            bc_grad_penalty = self.gradient_penalty(replay_data)
+            grad_penalties.append(bc_grad_penalty.item())
+            bc_loss = bc_bs_loss + self.bisim_kwargs["grad_penalty"] * bc_grad_penalty
+            self.bisim_optimizer.zero_grad()
+            bc_loss.backward()
+            self.bisim_optimizer.step()
+            bc_losses.append(bc_loss.item())
 
         self._n_updates += gradient_steps
 
