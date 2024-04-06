@@ -187,6 +187,17 @@ class BSAC(SAC):
         )
         critique = self.bisim_critic(next_zs)
 
+        critique_grad = torch.autograd.grad(
+            critique,
+            next_zs,
+            grad_outputs=torch.ones_like(critique),
+            create_graph=True,
+            retain_graph=True,
+        )[0]
+        grad_penalty = (
+            (critique_grad.norm(2, dim=1) - self.bisim_kwargs["K"]).pow(2).mean()
+        )
+
         if eval_vals is None:
             eval_vals = replay_data.rewards.detach().requires_grad_()
 
@@ -210,25 +221,9 @@ class BSAC(SAC):
         ) * reward_distance + self.bisim_kwargs["C"] / self.bisim_kwargs[
             "K"
         ] * critique_distance
+        dist_loss = F.mse_loss(encoded_distance, bisim_distance)
 
-        return F.mse_loss(encoded_distance, bisim_distance)
-
-    def gradient_penalty(self, replay_data: ReplayBufferSamples) -> torch.Tensor:
-        z = self.policy.encoder(
-            preprocess_obs(
-                replay_data.observations.detach().requires_grad_(),
-                self.observation_space,
-            )
-        )
-        critique = self.bisim_critic(z)
-        grad = torch.autograd.grad(
-            critique,
-            z,
-            grad_outputs=torch.ones_like(critique),
-            create_graph=True,
-        )[0]
-
-        return (grad.norm(2, dim=1) - self.bisim_kwargs["K"]).pow(2).mean()
+        return dist_loss + self.bisim_kwargs["grad_penalty"] * grad_penalty
 
     def train(self, gradient_steps: int, batch_size: int = 64) -> None:
         # Switch to train mode (this affects batch norm / dropout)
@@ -242,8 +237,8 @@ class BSAC(SAC):
         self._update_learning_rate(optimizers)
 
         ent_coef_losses, ent_coefs = [], []
-        bc_losses, grad_penalties = [], []
         actor_losses, critic_losses = [], []
+        bisim_losses = []
 
         for gradient_step in range(gradient_steps):
             # Sample replay buffer
@@ -343,16 +338,13 @@ class BSAC(SAC):
             # Jointly optimize the encoder and bisim critic
             agg_q_values = sum(current_q_values)
             assert isinstance(agg_q_values, torch.Tensor)
-            bc_bs_loss = self.bisim_loss(
+            bisim_loss = self.bisim_loss(
                 replay_data, agg_q_values.detach().requires_grad_()
             )
-            bc_grad_penalty = self.gradient_penalty(replay_data)
-            grad_penalties.append(bc_grad_penalty.item())
-            bc_loss = bc_bs_loss + self.bisim_kwargs["grad_penalty"] * bc_grad_penalty
             self.bisim_optimizer.zero_grad()
-            bc_loss.backward()
+            bisim_loss.backward()
             self.bisim_optimizer.step()
-            bc_losses.append(bc_loss.item())
+            bisim_losses.append(bisim_loss.item())
 
         self._n_updates += gradient_steps
 
@@ -360,8 +352,7 @@ class BSAC(SAC):
         self.logger.record("train/ent_coef", np.mean(ent_coefs))
         self.logger.record("train/actor_loss", np.mean(actor_losses))
         self.logger.record("train/critic_loss", np.mean(critic_losses))
-        self.logger.record("train/bisim_loss", np.mean(bc_losses))
-        self.logger.record("train/grad_penalty", np.mean(grad_penalties))
+        self.logger.record("train/bisim_loss", np.mean(bisim_losses))
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
 
