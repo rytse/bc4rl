@@ -1,3 +1,4 @@
+import itertools
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import numpy as np
@@ -9,11 +10,17 @@ from rl_zoo3 import linear_schedule
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.preprocessing import preprocess_obs
-from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
+from stable_baselines3.common.type_aliases import (
+    GymEnv,
+    MaybeCallback,
+    ReplayBufferSamples,
+    Schedule,
+)
 from stable_baselines3.common.utils import polyak_update
 from stable_baselines3.sac import SAC
 
-from .bisim import bisim_loss, gradient_penalty
+from bc4rl.nn import Mlp
+
 from .encoder import CustomCNN, CustomMLP
 from .policies import BSACCnnPolicy, BSACMlpPolicy, BSACMultiInputPolicy, BSACPolicy
 
@@ -139,7 +146,10 @@ class BSAC(SAC):
         width: int = 32,
         depth: int = 1,
         act: Type[nn.Module] = nn.ReLU,
+        orth_init: bool = False,
     ) -> nn.Module:
+        return Mlp(feature_dim, 1, width, depth, act, orth_init)
+
     def bisim_loss(
         self,
         replay_data: ReplayBufferSamples,
