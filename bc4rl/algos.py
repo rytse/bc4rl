@@ -47,7 +47,7 @@ class BSAC(SAC):
         bisim_kwargs: Union[Dict[str, Union[float, int]], str],
         sac_lr: Union[float, Schedule] = 3e-4,
         bisim_lr: Optional[Union[str, float]] = None,
-        buffer_size: int = 1_000_000,  # 1e6
+        buffer_size: int = 1_000_000,
         learning_starts: int = 100,
         batch_size: int = 256,
         tau: float = 0.005,
@@ -67,7 +67,7 @@ class BSAC(SAC):
         stats_window_size: int = 100,
         tensorboard_log: Optional[str] = None,
         policy_kwargs: Optional[Dict[str, Any]] = None,
-        bisim_critic_kwargs: Optional[Dict[str, Any]] = None,
+        bisim_critic_kwargs: Optional[Union[Dict[str, Any], str]] = None,
         verbose: int = 0,
         seed: Optional[int] = None,
         device: Union[torch.device, str] = "auto",
@@ -124,8 +124,10 @@ class BSAC(SAC):
 
         if bisim_critic_kwargs is None:
             bisim_critic_kwargs = {"feature_dim": self.policy.encoder.features_dim}
-        else:
-            bisim_critic_kwargs["feature_dim"] = self.policy.encoder.features_dim
+        elif isinstance(bisim_critic_kwargs, str):
+            bisim_critic_kwargs = eval(bisim_critic_kwargs)
+            assert isinstance(bisim_critic_kwargs, dict)
+        bisim_critic_kwargs["feature_dim"] = self.policy.encoder.features_dim
         self.bisim_critic = self.make_bisim_critic(**bisim_critic_kwargs).to(device)
 
         # Bisim optimization works better without momentum, we use vanilla SGD
@@ -136,8 +138,13 @@ class BSAC(SAC):
                 bisim_lr = sac_lr(1.0)
             else:
                 raise ValueError("Invalid learning rate")
-        self.bisim_critic_optimizer = optim.SGD(
-            self.bisim_critic.parameters(), lr=bisim_lr
+        elif isinstance(bisim_lr, str):
+            bisim_lr = float(bisim_lr)
+        self.bisim_optimizer = optim.SGD(
+            itertools.chain(
+                self.bisim_critic.parameters(), self.policy.encoder.parameters()
+            ),
+            lr=bisim_lr,
         )
 
     def make_bisim_critic(

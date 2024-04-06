@@ -24,7 +24,6 @@ def main(algo: str, env: str, device: str, optimize_hyperparameters: bool):
         custom_hyperparam_path = str(custom_hyperparam_path)
     else:
         custom_hyperparam_path = None
-
     exp_manager = ExperimentManager(
         argparse.Namespace(),
         algo,
