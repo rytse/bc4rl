@@ -40,7 +40,6 @@ class BSACPolicy(SACPolicy):
     critic_target: ContinuousCritic
 
     encoder: BaseFeaturesExtractor
-    encoder_optimizer: optim.Optimizer
 
     def __init__(
         self,
@@ -88,11 +87,6 @@ class BSACPolicy(SACPolicy):
 
     def _build(self, lr_schedule: Schedule) -> None:
         self.encoder = self.make_features_extractor()
-        self.encoder_optimizer = self.optimizer_class(
-            self.encoder.parameters(),
-            lr=lr_schedule(1),  # type: ignore[call-arg]
-            **self.optimizer_kwargs,
-        )
 
         self.actor = self.make_actor(features_extractor=self.encoder)
         actor_params = [
