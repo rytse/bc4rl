@@ -381,3 +381,14 @@ class BSAC(SAC):
         state_dicts, saved_pytorch_variables = super()._get_torch_save_params()
         state_dicts += ["bisim_critic", "bisim_optimizer"]
         return state_dicts, saved_pytorch_variables
+
+
+class CustomSAC(SAC):
+    def __init__(self, *args, **kwargs):
+        kwargs["policy_kwargs"] = dict(
+            share_features_extractor=True,
+            features_extractor_class=CustomMLP,
+            features_extractor_kwargs=dict(orth_init=True),
+            net_arch=[400, 300],
+        )
+        super().__init__(*args, **kwargs)

@@ -6,7 +6,7 @@ from rl_zoo3 import ALGOS
 from rl_zoo3.exp_manager import ExperimentManager
 from rl_zoo3.hyperparams_opt import HYPERPARAMS_SAMPLER
 
-from bc4rl.algos import BSAC
+from bc4rl.algos import BSAC, CustomSAC
 from bc4rl.samplers import sample_bsac_params
 
 
@@ -17,6 +17,7 @@ from bc4rl.samplers import sample_bsac_params
 @click.option("-h", "--optimize_hyperparameters", is_flag=True)
 def main(algo: str, env: str, device: str, optimize_hyperparameters: bool):
     ALGOS["bsac"] = BSAC
+    ALGOS["customsac"] = CustomSAC
     HYPERPARAMS_SAMPLER["bsac"] = sample_bsac_params
 
     custom_hyperparam_path = Path(f"./hyperparams/{algo}.yml")

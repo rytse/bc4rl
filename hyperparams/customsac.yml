@@ -1,0 +1,14 @@
+LunarLanderContinuous-v2:
+  n_timesteps: !!float 5e5
+  n_envs: 12
+  policy: "MlpPolicy"
+  batch_size: 256
+  learning_rate: lin_7.3e-4
+  buffer_size: 1_000_000
+  ent_coef: 'auto'
+  gamma: 0.99
+  tau: 0.01
+  train_freq: 1
+  gradient_steps: 1
+  learning_starts: 10_000
+
