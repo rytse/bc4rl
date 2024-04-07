@@ -125,6 +125,13 @@ class BSACPolicy(SACPolicy):
     def forward(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
         return super().forward(obs, deterministic)
 
+    def set_training_mode(self, mode: bool) -> None:
+        self.actor.set_training_mode(mode)
+        self.critic.set_training_mode(mode)
+        self.encoder.train(mode)
+
+        self.training = mode
+
 
 BSACMlpPolicy = BSACPolicy
 
