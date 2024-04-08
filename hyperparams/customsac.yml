@@ -1,5 +1,5 @@
 LunarLanderContinuous-v2:
-  n_timesteps: !!float 5e5
+  n_timesteps: !!float 2e6
   n_envs: 12
   policy: "MlpPolicy"
   batch_size: 256

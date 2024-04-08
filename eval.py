@@ -3,10 +3,9 @@ from pathlib import Path
 import gymnasium as gym
 import imageio
 import numpy as np
+from experiments.envs import get_env
 from stable_baselines3 import SAC
 from stable_baselines3.common.monitor import Monitor
-
-from experiments.envs import get_env
 
 LOG_DIR = Path("logs/old/experiment_manager_test/sac/LunarLanderContinuous-v2_4")
 VIDEO_DIR = LOG_DIR / "videos"

@@ -1,4 +1,3 @@
-import itertools
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import numpy as np
@@ -20,7 +19,7 @@ from stable_baselines3.common.type_aliases import (
 from stable_baselines3.common.utils import polyak_update
 from stable_baselines3.sac import SAC
 
-from bc4rl.nn import Mlp
+from bc4rl.nn import MLP
 
 from .encoder import CustomCNN, CustomMLP
 from .policies import (
@@ -133,14 +132,14 @@ class BSAC(SAC):
             raise ValueError("Invalid bisim_kwargs")
 
         if bisim_critic_kwargs is None:
-            bisim_critic_kwargs = {"feature_dim": self.policy.encoder.features_dim}
+            bisim_critic_kwargs = {"feature_dim": self.encoder.features_dim}
         elif isinstance(bisim_critic_kwargs, str):
             bisim_critic_kwargs = eval(bisim_critic_kwargs)
             assert isinstance(bisim_critic_kwargs, dict)
-        bisim_critic_kwargs["feature_dim"] = self.policy.encoder.features_dim
+        bisim_critic_kwargs["feature_dim"] = self.encoder.features_dim
         self.bisim_critic = self.make_bisim_critic(**bisim_critic_kwargs).to(device)
 
-        # Bisim optimization works better without momentum, we use vanilla SGD
+        # # Bisim optimization works better without momentum, we use vanilla SGD
         if bisim_lr is None:
             if isinstance(sac_lr, float):
                 bisim_lr = sac_lr
@@ -150,36 +149,38 @@ class BSAC(SAC):
                 raise ValueError("Invalid learning rate")
         elif isinstance(bisim_lr, str):
             bisim_lr = float(bisim_lr)
-        self.bisim_optimizer = optim.SGD(
-            itertools.chain(
-                self.bisim_critic.parameters(), self.policy.encoder.parameters()
-            ),
+        self.bisim_critic_optimizer = optim.SGD(
+            self.bisim_critic.parameters(),
             lr=bisim_lr,
         )
 
     def make_bisim_critic(
         self,
         feature_dim: int,
-        width: int = 32,
-        depth: int = 1,
+        net_arch: List[int] = [8],
         act: Type[nn.Module] = nn.ReLU,
         orth_init: bool = False,
     ) -> nn.Module:
-        return Mlp(feature_dim, 1, width, depth, act, orth_init)
+        return MLP(feature_dim, 1, net_arch, act, orth_init)
+
+    def _create_aliases(self) -> None:
+        super()._create_aliases()
+        self.encoder = self.policy.encoder
+        self.encoder_optimizer = self.policy.encoder_optimizer
 
     def bisim_loss(
         self,
         replay_data: ReplayBufferSamples,
         eval_vals: Optional[torch.Tensor] = None,
         n_samp: int = 128,
-    ) -> torch.Tensor:
-        zs = self.policy.encoder(
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        zs = self.encoder(
             preprocess_obs(
                 replay_data.observations.detach().requires_grad_(),
                 self.observation_space,
             )
         )
-        next_zs = self.policy.encoder(
+        next_zs = self.encoder(
             preprocess_obs(
                 replay_data.next_observations.detach().requires_grad_(),
                 self.observation_space,
@@ -221,15 +222,20 @@ class BSAC(SAC):
         ) * reward_distance + self.bisim_kwargs["C"] / self.bisim_kwargs[
             "K"
         ] * critique_distance
-        dist_loss = F.mse_loss(encoded_distance, bisim_distance)
+        bisim_loss = F.mse_loss(encoded_distance, bisim_distance)
 
-        return dist_loss + self.bisim_kwargs["grad_penalty"] * grad_penalty
+        return bisim_loss, grad_penalty
 
     def train(self, gradient_steps: int, batch_size: int = 64) -> None:
         # Switch to train mode (this affects batch norm / dropout)
         self.policy.set_training_mode(True)
         # Update optimizers learning rate
-        optimizers = [self.actor.optimizer, self.critic.optimizer]
+        # optimizers = [self.actor.optimizer, self.critic.optimizer]
+        optimizers = [
+            self.actor.optimizer,
+            self.critic.optimizer,
+            self.encoder_optimizer,
+        ]
         if self.ent_coef_optimizer is not None:
             optimizers += [self.ent_coef_optimizer]
 
@@ -238,7 +244,7 @@ class BSAC(SAC):
 
         ent_coef_losses, ent_coefs = [], []
         actor_losses, critic_losses = [], []
-        bisim_losses = []
+        bisim_losses, grad_penalties = [], []
 
         for gradient_step in range(gradient_steps):
             # Sample replay buffer
@@ -324,8 +330,10 @@ class BSAC(SAC):
 
             # Optimize the actor
             self.actor.optimizer.zero_grad()
+            # self.encoder_optimizer.zero_grad()
             actor_loss.backward()
             self.actor.optimizer.step()
+            # self.encoder_optimizer.step()
 
             # Update target networks
             if gradient_step % self.target_update_interval == 0:
@@ -336,15 +344,24 @@ class BSAC(SAC):
                 polyak_update(self.batch_norm_stats, self.batch_norm_stats_target, 1.0)
 
             # Jointly optimize the encoder and bisim critic
-            agg_q_values = sum(current_q_values)
-            assert isinstance(agg_q_values, torch.Tensor)
-            bisim_loss = self.bisim_loss(
-                replay_data, agg_q_values.detach().requires_grad_()
+            # agg_q_values = sum(current_q_values)
+            # assert isinstance(agg_q_values, torch.Tensor)
+            bisim_loss, grad_penalty = self.bisim_loss(
+                replay_data  # , agg_q_values.detach().requires_grad_()
             )
-            self.bisim_optimizer.zero_grad()
-            bisim_loss.backward()
-            self.bisim_optimizer.step()
             bisim_losses.append(bisim_loss.item())
+            grad_penalties.append(grad_penalty.item())
+
+            self.encoder_optimizer.zero_grad()
+            bisim_loss.backward(retain_graph=True)
+            self.encoder_optimizer.step()
+
+            bisim_critic_loss = (
+                bisim_loss + self.bisim_kwargs["grad_penalty"] * grad_penalty
+            )
+            self.bisim_critic_optimizer.zero_grad()
+            bisim_critic_loss.backward()
+            self.bisim_critic_optimizer.step()
 
         self._n_updates += gradient_steps
 
@@ -353,6 +370,7 @@ class BSAC(SAC):
         self.logger.record("train/actor_loss", np.mean(actor_losses))
         self.logger.record("train/critic_loss", np.mean(critic_losses))
         self.logger.record("train/bisim_loss", np.mean(bisim_losses))
+        self.logger.record("train/grad_penalty", np.mean(grad_penalties))
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
 
@@ -375,11 +393,16 @@ class BSAC(SAC):
         )
 
     def _excluded_save_params(self) -> List[str]:
-        return super()._excluded_save_params() + ["bisim_critic"]
+        return super()._excluded_save_params() + ["encoder", "bisim_critic"]
 
     def _get_torch_save_params(self) -> Tuple[List[str], List[str]]:
         state_dicts, saved_pytorch_variables = super()._get_torch_save_params()
-        state_dicts += ["bisim_critic", "bisim_optimizer"]
+        state_dicts += [
+            "encoder",
+            "encoder_optimizer",
+            "bisim_critic",
+            "bisim_critic_optimizer",
+        ]
         return state_dicts, saved_pytorch_variables
 
 
@@ -388,7 +411,7 @@ class CustomSAC(SAC):
         kwargs["policy_kwargs"] = dict(
             share_features_extractor=True,
             features_extractor_class=CustomMLP,
-            features_extractor_kwargs=dict(orth_init=True),
+            features_extractor_kwargs=dict(net_arch=[16], act=nn.ReLU, orth_init=True),
             net_arch=[400, 300],
         )
         super().__init__(*args, **kwargs)

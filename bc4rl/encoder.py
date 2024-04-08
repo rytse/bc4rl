@@ -1,11 +1,11 @@
-from typing import Type
+from typing import List, Type
 
 import torch
 import torch.nn as nn
 from gymnasium import spaces
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
-from bc4rl.nn import Mlp
+from bc4rl.nn import MLP
 
 
 class CustomCNN(BaseFeaturesExtractor):
@@ -45,14 +45,16 @@ class CustomMLP(BaseFeaturesExtractor):
         self,
         observation_space: spaces.Box,
         features_dim: int = 16,
-        width: int = 32,
-        depth: int = 2,
+        net_arch: List[int] = [400, 300],
         act: Type[nn.Module] = nn.ReLU,
         orth_init: bool = False,
     ):
         super().__init__(observation_space, features_dim)
-        self.mlp = Mlp(
-            observation_space.shape[0], features_dim, width, depth, act, orth_init
+        self.act = act
+        self.orth_init = orth_init
+
+        self.mlp = MLP(
+            observation_space.shape[0], features_dim, net_arch, act, orth_init
         )
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
