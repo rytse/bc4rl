@@ -10,11 +10,13 @@ def sample_bsac_params(
     """
     Sampler for BSAC hyperparams. Takes defaults from SAC and adds the missing ones.
     """
-    hyperparams = sample_sac_params(trial, n_actions, n_envs, additional_args)
+    # hyperparams = sample_sac_params(trial, n_actions, n_envs, additional_args)
+    hyperparams = {}
 
-    sac_lr = hyperparams["learning_rate"]
-    hyperparams["sac_lr"] = sac_lr
-    del hyperparams["learning_rate"]
+    # sac_lr = hyperparams["learning_rate"]
+    # hyperparams["sac_lr"] = sac_lr
+    # del hyperparams["learning_rate"]
+    hyperparams["sac_lr"] = trial.suggest_float("learning_rate", 1e-5, 1, log=True)
 
     hyperparams["bisim_lr"] = trial.suggest_float("bisim_lr", 1e-5, 1e-2, log=True)
     hyperparams["bisim_c"] = trial.suggest_float("bisim_c", 0.1, 0.9, log=True)
