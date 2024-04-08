@@ -10,6 +10,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.policies import ContinuousCritic
 from stable_baselines3.common.preprocessing import preprocess_obs
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.type_aliases import (
     GymEnv,
     MaybeCallback,
@@ -53,9 +54,13 @@ class BSAC(SAC):
         self,
         policy: Union[str, Type[BSACPolicy]],
         env: Union[GymEnv, str],
-        bisim_kwargs: Union[Dict[str, Union[float, int]], str],
         sac_lr: Union[float, Schedule] = 3e-4,
         bisim_lr: Optional[Union[str, float]] = None,
+        bisim_c: float = 0.5,
+        bisim_k: float = 1.0,
+        bisim_grad_penalty: float = 1.0,
+        features_extractor_class: Union[Type[BaseFeaturesExtractor], str] = CustomMLP,
+        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         buffer_size: int = 1_000_000,
         learning_starts: int = 100,
         batch_size: int = 256,
@@ -82,12 +87,26 @@ class BSAC(SAC):
         device: Union[torch.device, str] = "auto",
         _init_setup_model: bool = True,
     ):
+        self.bisim_c = bisim_c
+        self.bisim_k = bisim_k
+        self.bisim_grad_penalty = bisim_grad_penalty
+
         policy_kwargs = policy_kwargs if policy_kwargs is not None else {}
         policy_kwargs["share_features_extractor"] = True
-        if isinstance(policy_kwargs["features_extractor_class"], str):
+
+        if isinstance(features_extractor_class, str):
             policy_kwargs["features_extractor_class"] = self.encoder_aliases[
-                policy_kwargs["features_extractor_class"]
+                features_extractor_class
             ]
+        else:
+            policy_kwargs["features_extractor_class"] = features_extractor_class
+
+        if isinstance(features_extractor_kwargs, str):
+            features_extractor_kwargs = eval(features_extractor_kwargs)
+            assert isinstance(features_extractor_kwargs, dict)
+        elif features_extractor_kwargs is None:
+            features_extractor_kwargs = {}
+        policy_kwargs["features_extractor_kwargs"] = features_extractor_kwargs
 
         if isinstance(sac_lr, str):
             lr_str, lr_val = sac_lr.split("_")
@@ -124,22 +143,17 @@ class BSAC(SAC):
             _init_setup_model=_init_setup_model,
         )
 
-        if isinstance(bisim_kwargs, dict):
-            self.bisim_kwargs = bisim_kwargs
-        elif isinstance(bisim_kwargs, str):
-            self.bisim_kwargs = eval(bisim_kwargs)
-        else:
-            raise ValueError("Invalid bisim_kwargs")
-
-        if bisim_critic_kwargs is None:
-            bisim_critic_kwargs = {"feature_dim": self.encoder.features_dim}
-        elif isinstance(bisim_critic_kwargs, str):
+        if isinstance(bisim_critic_kwargs, str):
             bisim_critic_kwargs = eval(bisim_critic_kwargs)
             assert isinstance(bisim_critic_kwargs, dict)
-        bisim_critic_kwargs["feature_dim"] = self.encoder.features_dim
-        self.bisim_critic = self.make_bisim_critic(**bisim_critic_kwargs).to(device)
+        elif bisim_critic_kwargs is None:
+            bisim_critic_kwargs = {}
+        self.bisim_critic = self.make_bisim_critic(
+            self.encoder.features_dim, **bisim_critic_kwargs
+        ).to(device)
 
-        # # Bisim optimization works better without momentum, we use vanilla SGD
+        # Wasserstein critic estimation works better without momentum (see W-GAN paper), so we use
+        # vanilla SGD
         if bisim_lr is None:
             if isinstance(sac_lr, float):
                 bisim_lr = sac_lr
@@ -195,9 +209,7 @@ class BSAC(SAC):
             create_graph=True,
             retain_graph=True,
         )[0]
-        grad_penalty = (
-            (critique_grad.norm(2, dim=1) - self.bisim_kwargs["K"]).pow(2).mean()
-        )
+        grad_penalty = (critique_grad.norm(2, dim=1) - self.bisim_k).pow(2).mean()
 
         if eval_vals is None:
             eval_vals = replay_data.rewards.detach().requires_grad_()
@@ -218,10 +230,8 @@ class BSAC(SAC):
         reward_distance = torch.abs(rewards_i - rewards_j)
         critique_distance = torch.abs(critique_i - critique_j)
         bisim_distance = (
-            1 - self.bisim_kwargs["C"]
-        ) * reward_distance + self.bisim_kwargs["C"] / self.bisim_kwargs[
-            "K"
-        ] * critique_distance
+            1 - self.bisim_c
+        ) * reward_distance + self.bisim_c / self.bisim_k * critique_distance
         bisim_loss = F.mse_loss(encoded_distance, bisim_distance)
 
         return bisim_loss, grad_penalty
@@ -230,7 +240,6 @@ class BSAC(SAC):
         # Switch to train mode (this affects batch norm / dropout)
         self.policy.set_training_mode(True)
         # Update optimizers learning rate
-        # optimizers = [self.actor.optimizer, self.critic.optimizer]
         optimizers = [
             self.actor.optimizer,
             self.critic.optimizer,
@@ -344,10 +353,10 @@ class BSAC(SAC):
                 polyak_update(self.batch_norm_stats, self.batch_norm_stats_target, 1.0)
 
             # Jointly optimize the encoder and bisim critic
-            # agg_q_values = sum(current_q_values)
-            # assert isinstance(agg_q_values, torch.Tensor)
+            agg_q_values = sum(current_q_values)
+            assert isinstance(agg_q_values, torch.Tensor)
             bisim_loss, grad_penalty = self.bisim_loss(
-                replay_data  # , agg_q_values.detach().requires_grad_()
+                replay_data, agg_q_values.detach().requires_grad_()
             )
             bisim_losses.append(bisim_loss.item())
             grad_penalties.append(grad_penalty.item())
@@ -356,9 +365,7 @@ class BSAC(SAC):
             bisim_loss.backward(retain_graph=True)
             self.encoder_optimizer.step()
 
-            bisim_critic_loss = (
-                bisim_loss + self.bisim_kwargs["grad_penalty"] * grad_penalty
-            )
+            bisim_critic_loss = bisim_loss + self.bisim_grad_penalty * grad_penalty
             self.bisim_critic_optimizer.zero_grad()
             bisim_critic_loss.backward()
             self.bisim_critic_optimizer.step()

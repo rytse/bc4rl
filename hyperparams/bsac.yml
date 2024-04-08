@@ -4,7 +4,7 @@ LunarLanderContinuous-v2:
   policy: 'BSACMlpPolicy'
   batch_size: 256
   sac_lr: lin_7.3e-4
-  bisim_lr: 1.0e-3
+  bisim_lr: 1.0e-4
   buffer_size: 1000000
   ent_coef: 'auto'
   gamma: 0.99
@@ -12,15 +12,10 @@ LunarLanderContinuous-v2:
   train_freq: 1
   gradient_steps: 1
   learning_starts: 10000
-  bisim_kwargs: "dict(C=0.5, K=1.0, grad_penalty=1e-3)"
+  bisim_c: 0.5
+  bisim_k: 1.0
+  bisim_grad_penalty: 1.0
+  features_extractor_class: 'CustomMLP'
+  features_extractor_kwargs: 'dict(orth_init=True, net_arch=[16])'
+  policy_kwargs: "dict(net_arch=[400, 300])"
   bisim_critic_kwargs: "dict(orth_init=True)"
-  policy_kwargs: "dict(share_features_extractor=True, features_extractor_class='CustomMLP', features_extractor_kwargs=dict(orth_init=True, net_arch=[16]), net_arch=[400, 300])"
-
-HalfCheetah-v4:
-  n_timesteps: !!float 1e6
-  policy: 'BSACMlpPolicy'
-  n_envs: 10
-  learning_starts: 10000
-  bisim_lr: 1.0e-4
-  bisim_kwargs: "dict(C=1.0, K=1.0, grad_penalty=10.0, critic_training_steps=1)"
-  policy_kwargs: "dict(share_features_extractor=True, features_extractor_class='CustomMLP', net_arch=[400, 300])"
