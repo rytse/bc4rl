@@ -16,9 +16,7 @@ def sample_bsac_params(
     hyperparams["sac_lr"] = sac_lr
     del hyperparams["learning_rate"]
 
-    bisim_lr = trial.suggest_float("bisim_lr", 1e-5, 1e-2, log=True)
-    hyperparams["bisim_lr"] = bisim_lr
-
+    hyperparams["bisim_lr"] = trial.suggest_float("bisim_lr", 1e-5, 1e-2, log=True)
     hyperparams["bisim_c"] = trial.suggest_float("bisim_c", 0.1, 0.9, log=True)
     # hyperparams["bism_k"] = trial.suggest_float("bisim_k", 0.1, 10.0, log=True)
     hyperparams["bisim_use_q"] = trial.suggest_categorical("bisim_use_q", [True, False])

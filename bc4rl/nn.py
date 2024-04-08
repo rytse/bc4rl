@@ -17,7 +17,7 @@ class MLP(nn.Module):
         self,
         in_dim: int,
         out_dim: int,
-        net_arch: List[int] = [400, 300],
+        net_arch: List[int] = [16],
         act: Type[nn.Module] = nn.ReLU,
         orth_init: bool = False,
     ):
