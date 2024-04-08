@@ -21,6 +21,7 @@ def sample_bsac_params(
 
     hyperparams["bisim_c"] = trial.suggest_float("bisim_c", 0.1, 0.9, log=True)
     # hyperparams["bism_k"] = trial.suggest_float("bisim_k", 0.1, 10.0, log=True)
+    hyperparams["bisim_use_q"] = trial.suggest_categorical("bisim_use_q", [True, False])
     hyperparams["bisim_grad_penalty"] = trial.suggest_float(
         "bisim_grad_penalty", 1e-3, 1e2, log=True
     )

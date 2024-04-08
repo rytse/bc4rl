@@ -58,6 +58,7 @@ class BSAC(SAC):
         bisim_lr: Optional[Union[str, float]] = None,
         bisim_c: float = 0.5,
         bisim_k: float = 1.0,
+        bisim_use_q: bool = False,
         bisim_grad_penalty: float = 1.0,
         features_extractor_class: Union[Type[BaseFeaturesExtractor], str] = CustomMLP,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
@@ -89,6 +90,7 @@ class BSAC(SAC):
     ):
         self.bisim_c = bisim_c
         self.bisim_k = bisim_k
+        self.bisim_use_q = bisim_use_q
         self.bisim_grad_penalty = bisim_grad_penalty
 
         policy_kwargs = policy_kwargs if policy_kwargs is not None else {}
@@ -185,7 +187,7 @@ class BSAC(SAC):
     def bisim_loss(
         self,
         replay_data: ReplayBufferSamples,
-        eval_vals: Optional[torch.Tensor] = None,
+        target: torch.Tensor,
         n_samp: int = 128,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         zs = self.encoder(
@@ -200,6 +202,7 @@ class BSAC(SAC):
                 self.observation_space,
             )
         )
+        target = target.detach().requires_grad_()
         critique = self.bisim_critic(next_zs)
 
         critique_grad = torch.autograd.grad(
@@ -211,9 +214,6 @@ class BSAC(SAC):
         )[0]
         grad_penalty = (critique_grad.norm(2, dim=1) - self.bisim_k).pow(2).mean()
 
-        if eval_vals is None:
-            eval_vals = replay_data.rewards.detach().requires_grad_()
-
         # Randomly sample n_samp pairs of zs and critique
         assert n_samp <= zs.shape[0]
         idx_i = torch.randperm(zs.shape[0])[:n_samp]
@@ -223,11 +223,11 @@ class BSAC(SAC):
         zs_j = zs[idx_j]
         critique_i = critique[idx_i]
         critique_j = critique[idx_j]
-        rewards_i = eval_vals[idx_i]
-        rewards_j = eval_vals[idx_j]
+        target_i = target[idx_i]
+        target_j = target[idx_j]
 
         encoded_distance = torch.linalg.norm(zs_i - zs_j, ord=1, dim=1).unsqueeze(-1)
-        reward_distance = torch.abs(rewards_i - rewards_j)
+        reward_distance = torch.abs(target_i - target_j)
         critique_distance = torch.abs(critique_i - critique_j)
         bisim_distance = (
             1 - self.bisim_c
@@ -353,11 +353,13 @@ class BSAC(SAC):
                 polyak_update(self.batch_norm_stats, self.batch_norm_stats_target, 1.0)
 
             # Jointly optimize the encoder and bisim critic
-            agg_q_values = sum(current_q_values)
-            assert isinstance(agg_q_values, torch.Tensor)
-            bisim_loss, grad_penalty = self.bisim_loss(
-                replay_data, agg_q_values.detach().requires_grad_()
-            )
+            if self.bisim_use_q:
+                agg_q_values = sum(current_q_values)
+                assert isinstance(agg_q_values, torch.Tensor)
+                target = agg_q_values
+            else:
+                target = replay_data.rewards
+            bisim_loss, grad_penalty = self.bisim_loss(replay_data, target)
             bisim_losses.append(bisim_loss.item())
             grad_penalties.append(grad_penalty.item())
 
