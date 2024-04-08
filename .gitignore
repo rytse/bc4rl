@@ -3,6 +3,7 @@
 # Model logs, checkpoints, etc
 logs/
 tensorboard/
+*.sqlite3
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
