@@ -55,7 +55,7 @@ class BSAC(SAC):
         policy: Union[str, Type[BSACPolicy]],
         env: Union[GymEnv, str],
         sac_lr: Union[float, Schedule] = 3e-4,
-        bisim_lr: Optional[Union[str, float]] = None,
+        bisim_lr: Union[str, float] = 3e-4,
         bisim_c: float = 0.5,
         bisim_k: float = 1.0,
         bisim_use_q: bool = False,
@@ -156,18 +156,9 @@ class BSAC(SAC):
 
         # Wasserstein critic estimation works better without momentum (see W-GAN paper), so we use
         # vanilla SGD
-        if bisim_lr is None:
-            if isinstance(sac_lr, float):
-                bisim_lr = sac_lr
-            elif callable(sac_lr):
-                bisim_lr = sac_lr(1.0)
-            else:
-                raise ValueError("Invalid learning rate")
-        elif isinstance(bisim_lr, str):
-            bisim_lr = float(bisim_lr)
-        self.bisim_critic_optimizer = optim.SGD(
+        self.bisim_critic_optimizer = optim.Adam(
             self.bisim_critic.parameters(),
-            lr=bisim_lr,
+            lr=float(bisim_lr),
         )
 
     def make_bisim_critic(
