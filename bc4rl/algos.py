@@ -1,4 +1,5 @@
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import (Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar,
+                    Union)
 
 import numpy as np
 import torch
@@ -6,38 +7,46 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from rl_zoo3 import linear_schedule
+from stable_baselines3.a2c.policies import MultiInputPolicy
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.policies import ContinuousCritic
 from stable_baselines3.common.preprocessing import preprocess_obs
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-from stable_baselines3.common.type_aliases import (
-    GymEnv,
-    MaybeCallback,
-    ReplayBufferSamples,
-    Schedule,
-)
+from stable_baselines3.common.torch_layers import (BaseFeaturesExtractor,
+                                                   CombinedExtractor)
+from stable_baselines3.common.type_aliases import (GymEnv, MaybeCallback,
+                                                   PyTorchObs,
+                                                   ReplayBufferSamples,
+                                                   Schedule)
 from stable_baselines3.common.utils import polyak_update
 from stable_baselines3.sac import SAC
 
 from bc4rl.nn import MLP
 
-from .encoder import CustomCNN, CustomMLP
-from .policies import (
-    BSACActor,
-    BSACCnnPolicy,
-    BSACMlpPolicy,
-    BSACMultiInputPolicy,
-    BSACPolicy,
-)
+from .encoder import CustomCNN, CustomCombinedExtractor, CustomMLP
+from .policies import (BSACActor, BSACCnnPolicy, BSACMlpPolicy,
+                       BSACMultiInputPolicy, BSACPolicy)
 
 SelfBSAC = TypeVar("SelfBSAC", bound="BSAC")
 
 
+def _preprocess_and_detach_obs(obs: PyTorchObs, space) -> PyTorchObs:
+    preprocessed = preprocess_obs(obs, space)
+    if isinstance(preprocessed, torch.Tensor):
+        return preprocessed.detach().requires_grad_()
+    else:
+        detached = {}
+        for key, val in preprocessed.items():
+            detached[key] = val.detach().requires_grad_()
+        return detached
+
+
 class BSAC(SAC):
     encoder_aliases: ClassVar[Dict[str, Type[nn.Module]]] = {
+        "MultiInputPolicy": MultiInputPolicy,
         "CustomMLP": CustomMLP,
         "CustomCNN": CustomCNN,
+        "CombinedExtractor": CombinedExtractor,
     }
     policy_aliases: ClassVar[Dict[str, Type[BSACPolicy]]] = {
         "BSACMlpPolicy": BSACMlpPolicy,
@@ -182,14 +191,14 @@ class BSAC(SAC):
         n_samp: int = 128,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         zs = self.encoder(
-            preprocess_obs(
-                replay_data.observations.detach().requires_grad_(),
+            _preprocess_and_detach_obs(
+                replay_data.observations,  # .detach().requires_grad_(),
                 self.observation_space,
             )
         )
         next_zs = self.encoder(
-            preprocess_obs(
-                replay_data.next_observations.detach().requires_grad_(),
+            _preprocess_and_detach_obs(
+                replay_data.next_observations,  # .detach().requires_grad_(),
                 self.observation_space,
             )
         )
@@ -235,6 +244,7 @@ class BSAC(SAC):
             self.actor.optimizer,
             self.critic.optimizer,
             self.encoder_optimizer,
+            self.bisim_critic_optimizer,
         ]
         if self.ent_coef_optimizer is not None:
             optimizers += [self.ent_coef_optimizer]
@@ -410,8 +420,7 @@ class CustomSAC(SAC):
     def __init__(self, *args, **kwargs):
         kwargs["policy_kwargs"] = dict(
             share_features_extractor=True,
-            features_extractor_class=CustomMLP,
-            features_extractor_kwargs=dict(net_arch=[16], act=nn.ReLU, orth_init=True),
+            features_extractor_class=CustomCombinedExtractor,
             net_arch=[400, 300],
         )
         super().__init__(*args, **kwargs)

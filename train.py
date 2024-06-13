@@ -7,7 +7,7 @@ from rl_zoo3.exp_manager import ExperimentManager
 from rl_zoo3.hyperparams_opt import HYPERPARAMS_SAMPLER
 
 from bc4rl.algos import BSAC, CustomSAC
-from bc4rl.samplers import sample_bsac_params
+from bc4rl.samplers import sample_bsac_params, custom_sample_sac_params
 
 
 @click.command()
@@ -20,8 +20,9 @@ def main(algo: str, env: str, device: str, optimize_hyperparameters: bool, n_job
     ALGOS["bsac"] = BSAC
     ALGOS["customsac"] = CustomSAC
     HYPERPARAMS_SAMPLER["bsac"] = sample_bsac_params
+    HYPERPARAMS_SAMPLER["sac"] = custom_sample_sac_params
 
-    custom_hyperparam_path = Path(f"./hyperparams/{algo}.yml")
+    custom_hyperparam_path = Path(f"./hyperparams/{algo}.py")
     if custom_hyperparam_path.exists():
         custom_hyperparam_path = str(custom_hyperparam_path)
     else:
@@ -30,11 +31,12 @@ def main(algo: str, env: str, device: str, optimize_hyperparameters: bool, n_job
         argparse.Namespace(),
         algo,
         env,
+        env_kwargs={"render_mode": "rgb_array"},
         log_folder="./logs",
         tensorboard_log="./tensorboard",
         optimize_hyperparameters=optimize_hyperparameters,
         study_name=f"{algo}_{env}",
-        storage=f"sqlite:///./{algo}_{env}_hyperparams.sqlite3",
+        storage=f"sqlite:///{algo}_{env.replace('/', '-')}_hyperparams.sqlite3",
         n_trials=1_000,
         n_jobs=n_jobs,
         log_interval=10,

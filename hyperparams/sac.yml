@@ -1,0 +1,40 @@
+dm_control/acrobot-swingup_sparse-v0:
+  n_timesteps: !!float 2e6
+  n_envs: 12
+  policy: "CnnPolicy"
+  batch_size: 256
+  learning_rate: lin_7.3e-4
+  buffer_size: 1_000_000
+  ent_coef: 'auto'
+  gamma: 0.99
+  tau: 0.01
+  train_freq: 1
+  gradient_steps: 1
+  learning_starts: 10_000
+
+dm_control/cheetah-run-v0:
+  env_wrapper: 'gymnasium.wrappers.PixelObservationWrapper'
+  frame_stack: 3
+  n_timesteps: !!float 2e6
+  n_envs: 12
+  policy: "MultiInputPolicy"
+  policy_kwargs: "dict(features_extractor_class=CustomCombinedExtractor)"
+  buffer_size: 1_000_000
+  batch_size: 128
+  gamma: 0.99
+  tau: 0.005
+  learning_rate: 1.0e-5
+  train_freq: 2
+  ent_coeff: 0.9
+
+  # batch_size: 256
+  # learning_rate: lin_1.0e-3
+  # buffer_size: 1_000_000
+  # buffer_size: 10_000
+  # ent_coef: 'auto'
+  # gamma: 0.99
+  # tau: 0.01
+  # train_freq: 1
+  # gradient_steps: 1
+  # learning_starts: 10_000
+
