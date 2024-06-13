@@ -5,6 +5,7 @@ import click
 from rl_zoo3 import ALGOS
 from rl_zoo3.exp_manager import ExperimentManager
 from rl_zoo3.hyperparams_opt import HYPERPARAMS_SAMPLER
+import torch
 
 from bc4rl.algos import BSAC, CustomSAC
 from bc4rl.samplers import sample_bsac_params, custom_sample_sac_params
@@ -44,6 +45,8 @@ def main(algo: str, env: str, device: str, optimize_hyperparameters: bool, n_job
         device=device,
         config=custom_hyperparam_path,
     )
+
+    torch.autograd.set_detect_anomaly(False)
 
     results = exp_manager.setup_experiment()
     if results is not None:

@@ -10,30 +10,6 @@ from stable_baselines3.common.type_aliases import TensorDict
 from bc4rl.nn import MLP
 
 
-class CustomCNN(BaseFeaturesExtractor):
-    """
-    Custom Convolutional Neural Network to process stacked frames.
-    """
-
-    def __init__(self, observation_space, features_dim=512):
-        super(CustomCNN, self).__init__(observation_space, features_dim)
-
-        self.cnn = nn.Sequential(
-            nn.Conv2d(12, 32, kernel_size=8, stride=4, padding=0),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(64 * 7 * 7, features_dim),
-            nn.ReLU(),
-        )
-
-    def forward(self, observations):
-        return self.cnn(observations)
-
-
 class CustomMLP(BaseFeaturesExtractor):
     """
     :param observation_space: (gym.Space)
@@ -63,63 +39,65 @@ class CustomMLP(BaseFeaturesExtractor):
         return self.mlp(observations)
 
 
-class DeepBisimCNN(BaseFeaturesExtractor):
+class CustomCNN(BaseFeaturesExtractor):
     """Convolutional encoder of pixels observations."""
 
     def __init__(
         self,
         observation_space: spaces.Box,
         feature_dim: int,
-        # num_layers: int = 2,
-        cnn_out_dim: int = 39,
+        depth: int = 2,
         num_filters: int = 32,
         stride: int = 2,
+        orth_init: bool = False,
     ):
         super().__init__(observation_space=observation_space, features_dim=feature_dim)
 
         self.feature_dim = feature_dim
 
-        # self.num_layers = num_layers
-        # self.convs = nn.Sequential(
-        #     *(
-        #         [
-        #             nn.Conv2d(
-        #                 observation_space.shape[0], num_filters, 3, stride=stride
-        #             ),
-        #             nn.ReLU(),
-        #         ]
-        #         + [nn.Conv2d(num_filters, num_filters, 3, stride=1), nn.ReLU()]
-        #         * num_layers
-        #     )
-        # )
-        # out_dim = {2: 39, 4: 35, 6: 31}[num_layers]
-        # out_dim = 39
-        # self.fc = nn.Linear(num_filters * out_dim * out_dim, self.feature_dim)
-        # self.ln = nn.LayerNorm(self.feature_dim)
+        convs = [
+            nn.Conv2d(
+                observation_space.shape[0],
+                num_filters,
+                3,
+                stride=stride,
+            ),
+            nn.ReLU(),
+        ]
+        for _ in range(depth):
+            convs.extend(
+                [
+                    nn.Conv2d(num_filters, num_filters, 3, stride=1),
+                    nn.ReLU(),
+                ]
+            )
+        self.convs = nn.Sequential(*convs)
 
-        self.net = nn.Sequential(
-            nn.Conv2d(observation_space.shape[0], num_filters, 3, stride=stride),
-            nn.ReLU(),
-            nn.Conv2d(num_filters, num_filters, 3, stride=1),
-            nn.ReLU(),
-            nn.Conv2d(num_filters, num_filters, 3, stride=1),
-            nn.ReLU(),
-            nn.Linear(num_filters * cnn_out_dim * cnn_out_dim, self.feature_dim),
-            nn.LayerNorm(self.feature_dim),
-        )
+        with torch.no_grad():
+            dummy_input = torch.zeros(1, *observation_space.shape)
+            dummy_output = self.convs(dummy_input)
+            conv_out_dim = dummy_output.view(dummy_output.size(0), -1).shape[1]
+
+        self.linear = nn.Linear(conv_out_dim, self.feature_dim)
+        self.layer_norm = nn.LayerNorm(self.feature_dim)
+
+        if orth_init:
+            self.orth_init()
+
+    def _orth_init(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+                nn.init.orthogonal_(m.weight, nn.init.calculate_gain("relu"))
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, obs: torch.Tensor, detach: bool = False) -> torch.Tensor:
         obs_normed = obs / 255.0
-        # h_stacked = self.convs(obs_normed)
-        # h = h_stacked.view(h_stacked.size(0), -1)
+        h = self.convs(obs_normed).view(obs.size(0), -1)
 
-        # if detach:
-        #     h = h.detach()
+        if detach:
+            h = h.detach()
 
-        # h_fc = self.fc(h)
-        # out = self.ln(h_fc)
-
-        return self.net(obs_normed)
+        return self.layer_norm(self.linear(h))
 
 
 class CustomCombinedExtractor(BaseFeaturesExtractor):
@@ -128,45 +106,36 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
         observation_space: spaces.Dict,
         cnn_feature_dim: int = 50,
         normalized_image: bool = False,
+        orth_init: bool = False,
     ):
         super().__init__(observation_space, 1)
 
-        self.extractors: torch.ModuleDict = {}
-
+        extractors: Dict[str, nn.Module] = {}
         total_concat_size = 0
-        self.feature_sizes = {}
+        self.feature_sizes: Dict[str, int] = {}
+
         for key, subspace in observation_space.spaces.items():
             if is_image_space(subspace, normalized_image):
-                extractor = DeepBisimCNN(subspace, cnn_feature_dim)
-                self.extractors[key] = extractor
+                extractor = torch.compile(
+                    CustomCNN(subspace, cnn_feature_dim, orth_init=orth_init),
+                    mode="reduce-overhead",
+                )
+                extractors[key] = extractor
                 self.feature_sizes[key] = extractor.feature_dim
                 total_concat_size += extractor.feature_dim
             else:
                 print("Warning: non-image space not supported yet!")
                 extractor = nn.Flatten()
-                self.extractors[key] = extractor
+                extractors[key] = extractor
                 self.feature_sizes[key] = get_flattened_obs_dim(subspace)
                 total_concat_size += self.feature_sizes[key]
 
+        self.extractors = nn.ModuleDict(extractors)
         self._features_dim = total_concat_size
 
     def forward(self, observations: TensorDict) -> torch.Tensor:
-        # sample_tensor = next(iter(observations.values()))
-        # batch_size = sample_tensor.size(0)
-        # combined_features = torch.zeros(
-        #     batch_size, self._features_dim, device=sample_tensor.device
-        # )
-    
-        encoded_tensor_list = []
-        # current_index = 0
+        features = []
         for key, extractor in self.extractors.items():
-            encoded_tensor_list.append(extractor(observations[key]))
-            # extracted_features = extractor(observations[key])
-            # feature_size = self.feature_sizes[key]
-            # combined_features[:, current_index : current_index + feature_size] = (
-            #     extracted_features
-            # )
-            # current_index += feature_size
-
-        # return combined_features
-        return torch.cat(encoded_tensor_list, dim=1)
+            extracted_features = extractor(observations[key])
+            features.append(extracted_features)
+        return torch.cat(features, dim=1)
