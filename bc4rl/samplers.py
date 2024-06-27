@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
 import optuna
-from rl_zoo3.hyperparams_opt import sample_sac_params
+from rl_zoo3.hyperparams_opt import sample_sac_params, sample_ppo_params
 
 
 def sample_bsac_params(
@@ -89,5 +89,16 @@ def custom_sample_sac_params(
         hyperparams = sample_her_params(
             trial, hyperparams, additional_args["her_kwargs"]
         )
+
+    return hyperparams
+
+def custom_sample_ppo_params(
+    trial: optuna.Trial, n_actions: int, n_envs: int, additional_args: dict
+) -> Dict[str, Any]:
+    """
+    Sampler for PPO hyperparams. Takes defaults from rl_zoo3 and forces sizes to be small enough.
+    """
+    hyperparams = sample_ppo_params(trial, n_actions, n_envs, additional_args)
+    hyperparams["batch_size"] =  trial.suggest_categorical("batch_size", [16, 32, 64, 128])
 
     return hyperparams
