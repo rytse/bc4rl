@@ -15,7 +15,7 @@ from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import Actor, SACPolicy
 
 
-class BSACActor(Actor):
+class FrozenActor(Actor):
     """
     Actor with frozen encoder gradients
     """
@@ -35,7 +35,7 @@ class BSACPolicy(SACPolicy):
     optimized with the critic, rather than the actor.
     """
 
-    actor: BSACActor
+    actor: FrozenActor
     critic: ContinuousCritic
     critic_target: ContinuousCritic
 
@@ -79,11 +79,11 @@ class BSACPolicy(SACPolicy):
             share_features_extractor,
         )
 
-    def make_actor(self, features_extractor: BaseFeaturesExtractor) -> BSACActor:
+    def make_actor(self, features_extractor: BaseFeaturesExtractor) -> FrozenActor:
         actor_kwargs = self._update_features_extractor(
             self.actor_kwargs, features_extractor
         )
-        return BSACActor(**actor_kwargs).to(self.device)
+        return FrozenActor(**actor_kwargs).to(self.device)
 
     def _build(self, lr_schedule: Schedule) -> None:
         self.encoder = self.make_features_extractor()

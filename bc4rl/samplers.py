@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
 import optuna
-from rl_zoo3.hyperparams_opt import sample_sac_params, sample_ppo_params
+from rl_zoo3.hyperparams_opt import sample_ppo_params, sample_sac_params
 
 
 def sample_bsac_params(
@@ -34,9 +34,7 @@ def custom_sample_sac_params(
     )
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1, log=True)
     batch_size = trial.suggest_categorical("batch_size", [16, 32, 64, 128, 256])
-    buffer_size = trial.suggest_categorical(
-        "buffer_size", [int(5e3), int(1e4)]
-    )
+    buffer_size = trial.suggest_categorical("buffer_size", [int(5e3), int(1e4)])
     learning_starts = trial.suggest_categorical(
         "learning_starts", [0, 1000, 10000, 20000]
     )
@@ -92,6 +90,7 @@ def custom_sample_sac_params(
 
     return hyperparams
 
+
 def custom_sample_ppo_params(
     trial: optuna.Trial, n_actions: int, n_envs: int, additional_args: dict
 ) -> Dict[str, Any]:
@@ -99,6 +98,8 @@ def custom_sample_ppo_params(
     Sampler for PPO hyperparams. Takes defaults from rl_zoo3 and forces sizes to be small enough.
     """
     hyperparams = sample_ppo_params(trial, n_actions, n_envs, additional_args)
-    hyperparams["batch_size"] =  trial.suggest_categorical("batch_size", [16, 32, 64, 128])
+    hyperparams["batch_size"] = trial.suggest_categorical(
+        "batch_size", [16, 32, 64, 128]
+    )
 
     return hyperparams

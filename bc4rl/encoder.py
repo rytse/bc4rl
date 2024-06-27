@@ -3,8 +3,8 @@ from typing import Dict, List, Type
 import torch
 import torch.nn as nn
 from gymnasium import spaces
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.preprocessing import get_flattened_obs_dim, is_image_space
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.type_aliases import TensorDict
 
 from bc4rl.nn import MLP
