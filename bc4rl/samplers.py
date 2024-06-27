@@ -2,7 +2,7 @@ from typing import Any, Dict
 
 import optuna
 import torch.nn as nn
-from rl_zoo3.hyperparams_opt import sample_ppo_params, sample_sac_params
+from rl_zoo3.hyperparams_opt import sample_her_params
 
 
 def sample_bsac_params(
