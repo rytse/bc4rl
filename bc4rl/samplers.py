@@ -4,6 +4,8 @@ import optuna
 import torch.nn as nn
 from rl_zoo3.hyperparams_opt import sample_her_params
 
+from bc4rl.encoder import CustomCombinedExtractor
+
 
 def sample_bsac_params(
     trial: optuna.Trial, _n_actions: int, _n_envs: int, _additional_args: dict
@@ -122,7 +124,7 @@ def custom_sample_ppo_params(
     # Uncomment for gSDE (continuous action)
     # sde_sample_freq = trial.suggest_categorical("sde_sample_freq", [-1, 8, 16, 32, 64, 128, 256])
     # Orthogonal initialization
-    ortho_init = False
+    ortho_init = True
     # ortho_init = trial.suggest_categorical('ortho_init', [False, True])
     # activation_fn = trial.suggest_categorical('activation_fn', ['tanh', 'relu', 'elu', 'leaky_relu'])
     activation_fn_name = trial.suggest_categorical("activation_fn", ["tanh", "relu"])
@@ -168,5 +170,8 @@ def custom_sample_ppo_params(
             # net_arch=net_arch,
             activation_fn=activation_fn,
             ortho_init=ortho_init,
+            features_extractor_class=CustomCombinedExtractor,
+            features_extractor_kwargs=dict(ortho_init=ortho_init),
+            share_features_extractor=True,
         ),
     }
