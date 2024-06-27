@@ -71,18 +71,18 @@ class CustomCNN(BaseFeaturesExtractor):
                     nn.ReLU(),
                 ]
             )
-        self.convs = nn.Sequential(*convs)
+        self.convs = nn.Sequential(*convs, nn.Flatten())
 
         with torch.no_grad():
             dummy_input = torch.zeros(1, *observation_space.shape)
             dummy_output = self.convs(dummy_input)
-            conv_out_dim = dummy_output.view(dummy_output.size(0), -1).shape[1]
+            conv_out_dim = dummy_output.shape[-1]
 
         self.linear = nn.Linear(conv_out_dim, self.feature_dim)
         self.layer_norm = nn.LayerNorm(self.feature_dim)
 
         if orth_init:
-            self.orth_init()
+            self._orth_init()
 
     def _orth_init(self):
         for m in self.modules():
@@ -92,7 +92,7 @@ class CustomCNN(BaseFeaturesExtractor):
 
     def forward(self, obs: torch.Tensor, detach: bool = False) -> torch.Tensor:
         obs_normed = obs / 255.0
-        h = self.convs(obs_normed).view(obs.size(0), -1)
+        h = self.convs(obs_normed)
 
         if detach:
             h = h.detach()
@@ -112,23 +112,17 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
 
         extractors: Dict[str, nn.Module] = {}
         total_concat_size = 0
-        self.feature_sizes: Dict[str, int] = {}
 
         for key, subspace in observation_space.spaces.items():
             if is_image_space(subspace, normalized_image):
-                extractor = torch.compile(
-                    CustomCNN(subspace, cnn_feature_dim, orth_init=orth_init),
-                    mode="reduce-overhead",
-                )
+                extractor = CustomCNN(subspace, cnn_feature_dim, orth_init=orth_init)
                 extractors[key] = extractor
-                self.feature_sizes[key] = extractor.feature_dim
                 total_concat_size += extractor.feature_dim
             else:
                 print("Warning: non-image space not supported yet!")
                 extractor = nn.Flatten()
                 extractors[key] = extractor
-                self.feature_sizes[key] = get_flattened_obs_dim(subspace)
-                total_concat_size += self.feature_sizes[key]
+                total_concat_size += get_flattened_obs_dim(subspace)
 
         self.extractors = nn.ModuleDict(extractors)
         self._features_dim = total_concat_size
@@ -138,4 +132,5 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
         for key, extractor in self.extractors.items():
             extracted_features = extractor(observations[key])
             features.append(extracted_features)
+
         return torch.cat(features, dim=1)
