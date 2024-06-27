@@ -27,6 +27,7 @@ def main(algo: str, env: str, device: str, optimize_hyperparameters: bool, n_job
     ALGOS["customsac"] = CustomSAC
     HYPERPARAMS_SAMPLER["bsac"] = sample_bsac_params
     HYPERPARAMS_SAMPLER["sac"] = custom_sample_sac_params
+    HYPERPARAMS_SAMPLER["ppo"] = custom_sample_ppo_params
     HYPERPARAMS_SAMPLER["bppo"] = custom_sample_ppo_params
 
     custom_hyperparam_path = Path(f"./hyperparams/{algo}.py")
