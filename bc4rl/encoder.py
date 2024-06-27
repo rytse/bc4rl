@@ -25,14 +25,14 @@ class CustomMLP(BaseFeaturesExtractor):
         features_dim: int = 16,
         net_arch: List[int] = [16],
         act: Type[nn.Module] = nn.ReLU,
-        orth_init: bool = False,
+        ortho_init: bool = False,
     ):
         super().__init__(observation_space, features_dim)
         self.act = act
-        self.orth_init = orth_init
+        self.ortho_init = ortho_init
 
         self.mlp = MLP(
-            observation_space.shape[0], features_dim, net_arch, act, orth_init
+            observation_space.shape[0], features_dim, net_arch, act, ortho_init
         )
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
@@ -49,7 +49,7 @@ class CustomCNN(BaseFeaturesExtractor):
         depth: int = 2,
         num_filters: int = 32,
         stride: int = 2,
-        orth_init: bool = False,
+        ortho_init: bool = False,
     ):
         super().__init__(observation_space=observation_space, features_dim=feature_dim)
 
@@ -81,10 +81,10 @@ class CustomCNN(BaseFeaturesExtractor):
         self.linear = nn.Linear(conv_out_dim, self.feature_dim)
         self.layer_norm = nn.LayerNorm(self.feature_dim)
 
-        if orth_init:
-            self._orth_init()
+        if ortho_init:
+            self._ortho_init()
 
-    def _orth_init(self):
+    def _ortho_init(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
                 nn.init.orthogonal_(m.weight, nn.init.calculate_gain("relu"))
@@ -106,7 +106,7 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
         observation_space: spaces.Dict,
         cnn_feature_dim: int = 50,
         normalized_image: bool = False,
-        orth_init: bool = False,
+        ortho_init: bool = False,
     ):
         super().__init__(observation_space, 1)
 
@@ -115,7 +115,7 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
 
         for key, subspace in observation_space.spaces.items():
             if is_image_space(subspace, normalized_image):
-                extractor = CustomCNN(subspace, cnn_feature_dim, orth_init=orth_init)
+                extractor = CustomCNN(subspace, cnn_feature_dim, ortho_init=ortho_init)
                 extractors[key] = extractor
                 total_concat_size += extractor.feature_dim
             else:
