@@ -100,7 +100,7 @@ def custom_sample_ppo_params(
     """
     Sampler for PPO hyperparams. Takes defaults from rl_zoo3 and forces sizes to be small enough.
     """
-    batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
+    # batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
     n_steps = trial.suggest_categorical(
         "n_steps", [256, 512, 1024, 2048]
     )
@@ -135,8 +135,8 @@ def custom_sample_ppo_params(
     #     learning_rate = linear_schedule(learning_rate)
 
     # TODO: account when using multiple envs
-    if batch_size > n_steps:
-        batch_size = n_steps
+    # if batch_size > n_steps:
+    #     batch_size = n_steps
 
     # Independent networks usually work best
     # when not working with images
@@ -155,7 +155,7 @@ def custom_sample_ppo_params(
 
     return {
         "n_steps": n_steps,
-        "batch_size": batch_size,
+        # "batch_size": batch_size,
         "gamma": gamma,
         "learning_rate": learning_rate,
         "ent_coef": ent_coef,
