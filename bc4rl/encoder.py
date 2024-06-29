@@ -107,6 +107,7 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
         cnn_feature_dim: int = 50,
         normalized_image: bool = False,
         ortho_init: bool = False,
+        compile: bool = False,
     ):
         super().__init__(observation_space, 1)
 
@@ -116,6 +117,11 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
         for key, subspace in observation_space.spaces.items():
             if is_image_space(subspace, normalized_image):
                 extractor = CustomCNN(subspace, cnn_feature_dim, ortho_init=ortho_init)
+                if compile:
+                    extractor = torch.compile(
+                        extractor,
+                        mode="reduce-overhead",
+                    )
                 extractors[key] = extractor
                 total_concat_size += extractor.feature_dim
             else:
