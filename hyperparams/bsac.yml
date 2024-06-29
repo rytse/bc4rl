@@ -17,9 +17,9 @@ LunarLanderContinuous-v2:
   bisim_use_q: True
   bisim_grad_penalty: 1.0
   features_extractor_class: 'CustomMLP'
-  features_extractor_kwargs: 'dict(orth_init=True, net_arch=[16])'
+  features_extractor_kwargs: 'dict(ortho_init=True, net_arch=[16])'
   policy_kwargs: "dict(net_arch=[400, 300])"
-  bisim_critic_kwargs: "dict(orth_init=True)"
+  bisim_critic_kwargs: "dict(ortho_init=True)"
 
 BipedalWalker-v3:
   n_timesteps: !!float 5e5
@@ -41,8 +41,8 @@ BipedalWalker-v3:
   bisim_use_q: True
   bisim_grad_penalty: 1.0
   features_extractor_class: 'CustomMLP'
-  features_extractor_kwargs: 'dict(orth_init=True, features_dim=32, net_arch=[32])'
-  bisim_critic_kwargs: "dict(orth_init=True)"
+  features_extractor_kwargs: 'dict(ortho_init=True, features_dim=32, net_arch=[32])'
+  bisim_critic_kwargs: "dict(ortho_init=True)"
   policy_kwargs: "dict(log_std_init=-3, net_arch=[400, 300])"
 
 dm_control/cheetah-run-v0:
@@ -66,7 +66,7 @@ dm_control/cheetah-run-v0:
   features_extractor_class: 'CombinedExtractor'
   env_wrapper: 'gymnasium.wrappers.PixelObservationWrapper'
   frame_stack: 3
-  #   features_extractor_kwargs: 'dict(orth_init=True, features_dim=32, net_arch=[32])'
-  bisim_critic_kwargs: "dict(orth_init=True)"
+  #   features_extractor_kwargs: 'dict(ortho_init=True, features_dim=32, net_arch=[32])'
+  bisim_critic_kwargs: "dict(ortho_init=True)"
   # policy_kwargs: "dict(log_std_init=-3, net_arch=[400, 300])"
 

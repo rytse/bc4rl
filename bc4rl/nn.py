@@ -19,13 +19,13 @@ class MLP(nn.Module):
         out_dim: int,
         net_arch: List[int] = [16],
         act: Type[nn.Module] = nn.ReLU,
-        orth_init: bool = False,
+        ortho_init: bool = False,
     ):
         super(MLP, self).__init__()
         self.in_dim = in_dim
         self.out_dim = out_dim
         self.act = act
-        self.orth_init = orth_init
+        self.ortho_init = ortho_init
 
         layers = [self._get_linear(in_dim, net_arch[0]), act()]
         for i in range(1, len(net_arch)):
@@ -37,7 +37,7 @@ class MLP(nn.Module):
 
     def _get_linear(self, in_dim: int, out_dim: int) -> nn.Linear:
         linear = nn.Linear(in_dim, out_dim)
-        if self.orth_init:
+        if self.ortho_init:
             nn.init.orthogonal_(
                 linear.weight,
                 int(nn.init.calculate_gain(self.act.__name__.lower())),

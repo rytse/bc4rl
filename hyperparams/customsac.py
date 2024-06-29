@@ -8,7 +8,7 @@ hyperparams = {
         "policy": "MultiInputPolicy",
         "policy_kwargs": {
             "features_extractor_class": CustomCombinedExtractor,
-            "features_extractor_kwargs": {"orth_init": True},
+            "features_extractor_kwargs": {"ortho_init": True},
         },
         "buffer_size": 10_000,
         "batch_size": 64,

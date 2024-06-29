@@ -192,9 +192,9 @@ class BSAC(SAC):
         feature_dim: int,
         net_arch: List[int] = [8],
         act: Type[nn.Module] = nn.ReLU,
-        orth_init: bool = False,
+        ortho_init: bool = False,
     ) -> nn.Module:
-        return MLP(feature_dim, 1, net_arch, act, orth_init)
+        return MLP(feature_dim, 1, net_arch, act, ortho_init)
 
     def _create_aliases(self) -> None:
         super()._create_aliases()
@@ -533,9 +533,9 @@ class BPPO(PPO):
         feature_dim: int,
         net_arch: List[int] = [8],
         act: Type[nn.Module] = nn.ReLU,
-        orth_init: bool = False,
+        ortho_init: bool = False,
     ) -> nn.Module:
-        return MLP(feature_dim, 1, net_arch, act, orth_init)
+        return MLP(feature_dim, 1, net_arch, act, ortho_init)
 
     def bisim_loss(
         self,
