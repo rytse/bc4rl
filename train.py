@@ -33,8 +33,10 @@ def main(algo: str, env: str, device: str, optimize_hyperparameters: bool, n_job
     custom_hyperparam_path = Path(f"./hyperparams/{algo}.py")
     if custom_hyperparam_path.exists():
         custom_hyperparam_path = str(custom_hyperparam_path)
+        print(f"Got custom hyperparameters from {custom_hyperparam_path}")
     else:
         custom_hyperparam_path = None
+        print("Failed to get custom hyperparameters")
     exp_manager = ExperimentManager(
         argparse.Namespace(),
         algo,
@@ -53,7 +55,7 @@ def main(algo: str, env: str, device: str, optimize_hyperparameters: bool, n_job
         config=custom_hyperparam_path,
     )
 
-    torch.autograd.set_detect_anomaly(False)
+    torch.autograd.set_detect_anomaly(True)
 
     results = exp_manager.setup_experiment()
     if results is not None:

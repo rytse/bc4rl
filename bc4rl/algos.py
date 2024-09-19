@@ -506,6 +506,8 @@ class BPPO(PPO):
             _init_setup_model,
         )
 
+        assert self.policy.share_features_extractor == True, "Feature extractor must be shared"
+
         self.bisim_lr = bisim_lr
         self.bisim_c = bisim_c
         self.bisim_k = bisim_k
@@ -528,12 +530,15 @@ class BPPO(PPO):
             lr=float(bisim_lr),
         )
 
+        self.encoder = self.policy.features_extractor
+
+
     def make_bisim_critic(
         self,
         feature_dim: int,
         net_arch: List[int] = [8],
         act: Type[nn.Module] = nn.ReLU,
-        ortho_init: bool = False,
+        ortho_init: bool = True,
     ) -> nn.Module:
         return MLP(feature_dim, 1, net_arch, act, ortho_init)
 
@@ -545,7 +550,7 @@ class BPPO(PPO):
         obs = rollout_data.observations
         zs = self.encoder(
             _preprocess_and_detach_obs(
-                obs,  # .detach().requires_grad_(),
+                obs,  # .detach().requires_grad_(), # TODO why is this not detached??
                 self.observation_space,
             )
         )
@@ -553,7 +558,7 @@ class BPPO(PPO):
         next_obs = self.policy(obs, deterministic=True)[0]
         next_zs = self.encoder(
             _preprocess_and_detach_obs(
-                next_obs,  # .detach().requires_grad_(),
+                next_obs,  # .detach().requires_grad_(), # TODO why is this not detached??
                 self.observation_space,
             )
         )
