@@ -7,8 +7,8 @@ from rl_zoo3 import ALGOS
 from rl_zoo3.exp_manager import ExperimentManager
 from rl_zoo3.hyperparams_opt import HYPERPARAMS_SAMPLER
 
-from bc4rl.algos.bppo import BPPO
-from bc4rl.algos.bsac import BSAC, CustomSAC
+from bc4rl.bppo.algo import BPPO
+from bc4rl.bsac.algo import BSAC, CustomSAC
 from bc4rl.samplers import (
     custom_sample_ppo_params,
     custom_sample_sac_params,

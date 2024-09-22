@@ -1,4 +1,4 @@
-from bc4rl.encoder import CustomCombinedExtractor, CustomCNN
+from bc4rl.encoder import CustomCombinedExtractor
 
 hyperparams = {
     "dm_control/cheetah-run-v0": {
@@ -14,7 +14,7 @@ hyperparams = {
         "gae_lambda": 0.97,
         "clip_range": 0.2,
         "target_kl": 0.01,
-        "policy": "MultiInputPolicy",
+        "policy": "BPPOMultiInputPolicy",
         "policy_kwargs": {
             "share_features_extractor": True,
             "features_extractor_class": CustomCombinedExtractor,
@@ -31,7 +31,7 @@ hyperparams = {
         "n_epochs": 4,
         "n_steps": 128,
         "n_timesteps": 10_000_000,
-        "policy": "CnnPolicy",
+        "policy": "BPPOCnnPolicy",
         "vf_coef": 0.5,
         "policy_kwargs": {
             # "activation_fn": nn.ReLU,

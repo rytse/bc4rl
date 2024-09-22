@@ -26,7 +26,7 @@ from stable_baselines3.sac import SAC
 from bc4rl.nn import MLP
 from bc4rl.utils import preprocess_and_detach_obs
 from bc4rl.encoder import CustomCNN, CustomCombinedExtractor, CustomMLP
-from bc4rl.policies import (
+from bc4rl.bsac.policies import (
     BSACCnnPolicy,
     BSACMlpPolicy,
     BSACMultiInputPolicy,

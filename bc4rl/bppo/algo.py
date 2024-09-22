@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union, NamedTuple, Generator
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union, ClassVar
 
 import numpy as np
 import torch
@@ -10,12 +10,10 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.utils import obs_as_tensor
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.buffers import RolloutBuffer
-from stable_baselines3.common.vec_env import VecNormalize, VecEnv
-from stable_baselines3.common.policies import ActorCriticPolicy
+from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.common.type_aliases import (
     GymEnv,
     MaybeCallback,
-    RolloutBufferSamples,
     Schedule,
 )
 from stable_baselines3.common.utils import (
@@ -25,134 +23,30 @@ from stable_baselines3.ppo import PPO
 
 from bc4rl.nn import MLP
 from bc4rl.utils import preprocess_and_detach_obs
+from bc4rl.bppo.buffers import RolloutReplayBuffer, RolloutReplayBufferSamples
+from bc4rl.bppo.policies import (
+    BPPOPolicy,
+    BPPOMlpPolicy,
+    BPPOCnnPolicy,
+    BPPOMultiInputPolicy,
+)
 
 SelfBPPO = TypeVar("SelfBPPO", bound="BPPO")
 
-class RolloutReplayBufferSamples(NamedTuple):
-    observations: torch.Tensor
-    next_observations: torch.Tensor
-    actions: torch.Tensor
-    old_values: torch.Tensor
-    old_log_prob: torch.Tensor
-    advantages: torch.Tensor
-    returns: torch.Tensor
-
-
-class RolloutReplayBuffer(RolloutBuffer):
-    """
-    Rollout buffer that also includes next_obs.
-    """
-
-    observations: np.ndarray
-    next_observations: np.ndarray
-    actions: np.ndarray
-    rewards: np.ndarray
-    advantages: np.ndarray
-    returns: np.ndarray
-    episode_starts: np.ndarray
-    log_probs: np.ndarray
-    values: np.ndarray
-
-    def reset(self) -> None:
-        print("\n")
-        print(f"Buffer size before reset: {self.buffer_size}")
-        print("\n")
-        self.next_observations = np.zeros((self.buffer_size, self.n_envs, *self.obs_shape), dtype=np.float32)
-        super().reset()
-        print("\n")
-        print(f"Buffer size after reset: {self.buffer_size}")
-        print("\n")
-
-    def add(
-        self,
-        obs: np.ndarray,
-        action: np.ndarray,
-        reward: np.ndarray,
-        episode_start: np.ndarray,
-        value: torch.Tensor,
-        log_prob: torch.Tensor,
-    ) -> None:
-        """We shouldn't be able to call this method, we should be forced to use add_with_next_obs instead"""
-        raise NotImplementedError
-
-    def add_with_next_obs(
-        self,
-        obs: np.ndarray,
-        next_obs: np.ndarray,
-        action: np.ndarray,
-        reward: np.ndarray,
-        episode_start: np.ndarray,
-        value: torch.Tensor,
-        log_prob: torch.Tensor,
-    ) -> None:
-        if isinstance(self.observation_space, spaces.Discrete):
-            next_obs = next_obs.reshape((self.n_envs, *self.obs_shape))
-        self.next_observations[self.pos] = np.array(next_obs)
-
-        super().add(obs, action, reward, episode_start, value, log_prob)
-
-    def get(self, batch_size: Optional[int] = None) -> Generator[RolloutReplayBufferSamples, None, None]:
-        """We shouldn't be able to call this method, we should be forced to use get_with_next_obs instead"""
-        raise NotImplementedError
-
-    def get_with_next_obs(self, batch_size: Optional[int] = None) -> Generator[RolloutReplayBufferSamples, None, None]:
-        assert self.full, ""
-        indices = np.random.permutation(self.buffer_size * self.n_envs)
-        # Prepare the data
-        if not self.generator_ready:
-            _tensor_names = [
-                "observations",
-                "actions",
-                "values",
-                "log_probs",
-                "advantages",
-                "returns",
-            ]
-
-            for tensor in _tensor_names:
-                self.__dict__[tensor] = self.swap_and_flatten(self.__dict__[tensor])
-            self.generator_ready = True
-
-        # Return everything, don't create minibatches
-        if batch_size is None:
-            batch_size = self.buffer_size * self.n_envs
-
-        start_idx = 0
-        while start_idx < self.buffer_size * self.n_envs:
-            yield self._get_samples_with_next_obs(indices[start_idx : start_idx + batch_size])
-            start_idx += batch_size
-
-    def _get_samples(self, batch_inds: np.ndarray) -> RolloutReplayBufferSamples:
-        """We shouldn't be able to call this method, we should be forced to use _get_samples_with_next_obs instead"""
-        raise NotImplementedError
-
-    def _get_samples_with_next_obs(
-        self,
-        batch_inds: np.ndarray,
-        env: Optional[VecNormalize] = None,
-    ) -> RolloutReplayBufferSamples:
-        breakpoint()
-        data = (
-            self.observations[batch_inds],
-            self.next_observations[batch_inds],
-            self.actions[batch_inds],
-            self.values[batch_inds].flatten(),
-            self.log_probs[batch_inds].flatten(),
-            self.advantages[batch_inds].flatten(),
-            self.returns[batch_inds].flatten(),
-        )
-        return RolloutReplayBufferSamples(*tuple(map(self.to_torch, data)))
-
-
-
 
 class BPPO(PPO):
+
+    policy_aliases: ClassVar[Dict[str, Type[BPPOPolicy]]] = {
+        "BPPOMlpPolicy": BPPOMlpPolicy,
+        "BPPOCnnPolicy": BPPOCnnPolicy,
+        "BPPOMultiInputPolicy": BPPOMultiInputPolicy,
+    }
 
     rollout_buffer: RolloutReplayBuffer
 
     def __init__(
         self,
-        policy: Union[str, Type[ActorCriticPolicy]],
+        policy: Union[str, Type[BPPOPolicy]],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule] = 3e-4,
         n_steps: int = 2048,
@@ -240,6 +134,7 @@ class BPPO(PPO):
         )
 
         self.encoder = self.policy.features_extractor
+        self.encoder_optimizer = self.policy.encoder_optimizer
 
     def collect_rollouts(
         self,
@@ -262,7 +157,11 @@ class BPPO(PPO):
         callback.on_rollout_start()
 
         while n_steps < n_rollout_steps:
-            if self.use_sde and self.sde_sample_freq > 0 and n_steps % self.sde_sample_freq == 0:
+            if (
+                self.use_sde
+                and self.sde_sample_freq > 0
+                and n_steps % self.sde_sample_freq == 0
+            ):
                 # Sample a new noise matrix
                 self.policy.reset_noise(env.num_envs)
 
@@ -283,7 +182,9 @@ class BPPO(PPO):
                 else:
                     # Otherwise, clip the actions to avoid out of bound error
                     # as we are sampling from an unbounded Gaussian distribution
-                    clipped_actions = np.clip(actions, self.action_space.low, self.action_space.high)
+                    clipped_actions = np.clip(
+                        actions, self.action_space.low, self.action_space.high
+                    )
 
             new_obs, rewards, dones, infos = env.step(clipped_actions)
 
@@ -309,7 +210,9 @@ class BPPO(PPO):
                     and infos[idx].get("terminal_observation") is not None
                     and infos[idx].get("TimeLimit.truncated", False)
                 ):
-                    terminal_obs = self.policy.obs_to_tensor(infos[idx]["terminal_observation"])[0]
+                    terminal_obs = self.policy.obs_to_tensor(
+                        infos[idx]["terminal_observation"]
+                    )[0]
                     with torch.no_grad():
                         terminal_value = self.policy.predict_values(terminal_obs)[0]  # type: ignore[arg-type]
                     rewards[idx] += self.gamma * terminal_value
@@ -338,7 +241,6 @@ class BPPO(PPO):
 
         return True
 
-
     def make_bisim_critic(
         self,
         feature_dim: int,
@@ -353,21 +255,20 @@ class BPPO(PPO):
         rollout_data: RolloutReplayBufferSamples,
         n_samp: int = 128,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        obs = rollout_data.observations
-        next_obs = rollout_data.next_observations
-
-        preprocessed_obs = preprocess_and_detach_obs(
-            obs,
-            self.observation_space,
+        zs = self.encoder(
+            preprocess_and_detach_obs(
+                rollout_data.observations.detach().requires_grad_(),
+                self.observation_space,
+            )
         )
-        preprocessed_next_obs = preprocess_and_detach_obs(
-            next_obs,
-            self.observation_space,
+        next_zs = self.encoder(
+            preprocess_and_detach_obs(
+                rollout_data.next_observations.detach().requires_grad_(),
+                self.observation_space,
+            )
         )
 
-        zs = self.encoder(preprocessed_obs)
-        next_zs = self.encoder(preprocessed_next_obs)
-
+        target = rollout_data.rewards.float().detach().requires_grad_()
         critique = self.bisim_critic(next_zs)
         critique_grad = torch.autograd.grad(
             critique,
@@ -388,11 +289,11 @@ class BPPO(PPO):
         critique_i = critique[idx_i]
         critique_j = critique[idx_j]
         # todo try using value function like in BSAC?
-        rewards_i = rollout_data.rewards[idx_i]
-        rewards_j = rollout_data.rewards[idx_j]
+        target_i = target[idx_i]
+        target_j = target[idx_j]
 
         encoded_distance = torch.linalg.norm(zs_i - zs_j, ord=1, dim=1).unsqueeze(-1)
-        reward_distance = torch.abs(rewards_i - rewards_j)
+        reward_distance = torch.abs(target_i - target_j)
         critique_distance = torch.abs(critique_i - critique_j)
         bisim_distance = (
             1 - self.bisim_c
@@ -511,23 +412,26 @@ class BPPO(PPO):
                         )
                     break
 
-                bisim_loss, grad_penalty = self.bisim_loss(rollout_data)
-                bisim_losses.append(bisim_loss.item())
-                grad_penalties.append(grad_penalty.item())
-
-                bppo_loss = ppo_loss + self.bisim_loss_weight
-                bisim_critic_loss = bisim_loss + self.bisim_grad_penalty * grad_penalty
-
-                # Optimize policy
+                # Original PPO loss to update all networks except the encoder and the bisim critic
                 self.policy.optimizer.zero_grad()
-                bppo_loss.backward(retain_graph=True)
-                # Clip grad norm
+                ppo_loss.backward(retain_graph=True)
                 torch.nn.utils.clip_grad_norm_(
                     self.policy.parameters(), self.max_grad_norm
                 )
                 self.policy.optimizer.step()
 
-                # Optimize bisim critic
+                # Bisim loss, for updating the encoder and the critic
+                bisim_loss, grad_penalty = self.bisim_loss(rollout_data)
+                bisim_critic_loss = (
+                    bisim_loss  # + self.bisim_grad_penalty * grad_penalty
+                )
+                bisim_losses.append(bisim_loss.item())
+                grad_penalties.append(grad_penalty.item())
+
+                self.encoder_optimizer.zero_grad()
+                bisim_loss.backward(retain_graph=True)
+                self.encoder_optimizer.step()
+
                 self.bisim_critic_optimizer.zero_grad()
                 bisim_critic_loss.backward()
                 self.bisim_critic_optimizer.step()
