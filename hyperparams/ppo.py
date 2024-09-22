@@ -28,7 +28,7 @@ hyperparams = {
             "features_extractor_kwargs": {"ortho_init": True},
         },
     },
-    "atari" : {
+    "atari": {
         "batch_size": 256,
         "clip_range": "lin_0.1",
         "ent_coef": 0.01,
@@ -41,10 +41,10 @@ hyperparams = {
         "policy": "CnnPolicy",
         "vf_coef": 0.5,
         "policy_kwargs": {
-            #"activation_fn": nn.ReLU,
+            # "activation_fn": nn.ReLU,
             "share_features_extractor": True,
-            #"features_extractor_class": CustomCombinedExtractor,
-            #"features_extractor_kwargs": {"ortho_init": True},
+            # "features_extractor_class": CustomCombinedExtractor,
+            # "features_extractor_kwargs": {"ortho_init": True},
         },
-    }
+    },
 }

@@ -101,9 +101,7 @@ def custom_sample_ppo_params(
     Sampler for PPO hyperparams. Takes defaults from rl_zoo3 and forces sizes to be small enough.
     """
     # batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
-    n_steps = trial.suggest_categorical(
-        "n_steps", [256, 512, 1024, 2048]
-    )
+    n_steps = trial.suggest_categorical("n_steps", [256, 512, 1024, 2048])
     gamma = trial.suggest_categorical(
         "gamma", [0.9, 0.95, 0.98, 0.99, 0.995, 0.999, 0.9999]
     )

@@ -45,7 +45,7 @@ class CustomCNN(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Box,
-        feature_dim: int,
+        feature_dim: int = 128,
         depth: int = 2,
         num_filters: int = 32,
         stride: int = 2,
