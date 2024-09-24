@@ -414,17 +414,15 @@ class BPPO(PPO):
 
                 # Original PPO loss to update all networks except the encoder and the bisim critic
                 self.policy.optimizer.zero_grad()
-                ppo_loss.backward(retain_graph=True)
+                ppo_loss.backward()
                 torch.nn.utils.clip_grad_norm_(
                     self.policy.parameters(), self.max_grad_norm
                 )
                 self.policy.optimizer.step()
 
-                # Bisim loss, for updating the encoder and the critic
+                # Bisim loss terms
                 bisim_loss, grad_penalty = self.bisim_loss(rollout_data)
-                bisim_critic_loss = (
-                    bisim_loss  # + self.bisim_grad_penalty * grad_penalty
-                )
+                bisim_critic_loss = bisim_loss.clone() + self.bisim_grad_penalty * grad_penalty
                 bisim_losses.append(bisim_loss.item())
                 grad_penalties.append(grad_penalty.item())
 
@@ -481,3 +479,16 @@ class BPPO(PPO):
             reset_num_timesteps=reset_num_timesteps,
             progress_bar=progress_bar,
         )
+
+    def _excluded_save_params(self) -> List[str]:
+        return super()._excluded_save_params() + ["encoder", "bisim_critic"]
+
+    def _get_torch_save_params(self) -> Tuple[List[str], List[str]]:
+        state_dicts, saved_pytorch_variables = super()._get_torch_save_params()
+        state_dicts += [
+            "encoder",
+            "encoder_optimizer",
+            "bisim_critic",
+            "bisim_critic_optimizer",
+        ]
+        return state_dicts, saved_pytorch_variables
