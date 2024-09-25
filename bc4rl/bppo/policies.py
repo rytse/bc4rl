@@ -1,19 +1,10 @@
-from typing import Any, Dict, List, Optional, Type, Union
 from functools import partial
+from typing import Any, Dict, List, Optional, Type, Union
 
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
-
 from gymnasium import spaces
-from stable_baselines3.common.torch_layers import (
-    BaseFeaturesExtractor,
-    CombinedExtractor,
-    NatureCNN,
-)
-
-from stable_baselines3.common.type_aliases import Schedule
-from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.distributions import (
     BernoulliDistribution,
     CategoricalDistribution,
@@ -21,6 +12,13 @@ from stable_baselines3.common.distributions import (
     MultiCategoricalDistribution,
     StateDependentNoiseDistribution,
 )
+from stable_baselines3.common.policies import ActorCriticPolicy
+from stable_baselines3.common.torch_layers import (
+    BaseFeaturesExtractor,
+    CombinedExtractor,
+    NatureCNN,
+)
+from stable_baselines3.common.type_aliases import Schedule
 
 
 class BPPOPolicy(ActorCriticPolicy):
@@ -84,18 +82,19 @@ class BPPOPolicy(ActorCriticPolicy):
                 module.apply(partial(self.init_weights, gain=gain))
 
         # Setup optimizer with initial learning rate
-        non_encoder_params = [
-            param
-            for name, param in self.named_parameters()
-            if "features_extractor" not in name
-        ]
-        encoder_params = [
-            param
-            for name, param in self.named_parameters()
-            if "features_extractor" in name
-        ]
-        self.optimizer = self.optimizer_class(non_encoder_params, lr=lr_schedule(1), **self.optimizer_kwargs)  # type: ignore[call-arg]
+        non_encoder_params = []
+        encoder_params = []
+        for name, param in self.named_parameters():
+            if (
+                "features_extractor" in name
+            ):  # TODO leave the last linear layer free to be optimized by policy
+                encoder_params.append(param)
+            else:
+                non_encoder_params.append(param)
+        # self.encoder_optimizer = self.optimizer_class(encoder_params, lr=lr_schedule(1), **self.optimizer_kwargs)  # type: ignore[call-arg]
         self.encoder_optimizer = self.optimizer_class(encoder_params, lr=lr_schedule(1), **self.optimizer_kwargs)  # type: ignore[call-arg]
+        # self.optimizer = self.optimizer_class(non_encoder_params, lr=lr_schedule(1), **self.optimizer_kwargs)  # type: ignore[call-arg]
+        self.optimizer = self.optimizer_class(self.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs)  # type: ignore[call-arg]
 
 
 BPPOMlpPolicy = BPPOPolicy

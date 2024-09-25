@@ -1,10 +1,10 @@
-from typing import Optional, NamedTuple, Generator
+from typing import Generator, NamedTuple, Optional
 
-from stable_baselines3.common.vec_env import VecNormalize
-from stable_baselines3.common.buffers import RolloutBuffer
-from gymnasium import spaces
-import torch
 import numpy as np
+import torch
+from gymnasium import spaces
+from stable_baselines3.common.buffers import RolloutBuffer
+from stable_baselines3.common.vec_env import VecNormalize
 
 
 class RolloutReplayBufferSamples(NamedTuple):
@@ -111,9 +111,7 @@ class RolloutReplayBuffer(RolloutBuffer):
         raise NotImplementedError
 
     def _get_samples_with_next_obs(
-        self,
-        batch_inds: np.ndarray,
-        env: Optional[VecNormalize] = None,
+        self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None,
     ) -> RolloutReplayBufferSamples:
 
         assert (

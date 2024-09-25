@@ -23,9 +23,6 @@ from stable_baselines3.common.type_aliases import (
 from stable_baselines3.common.utils import polyak_update
 from stable_baselines3.sac import SAC
 
-from bc4rl.nn import MLP
-from bc4rl.utils import preprocess_and_detach_obs
-from bc4rl.encoder import CustomCNN, CustomCombinedExtractor, CustomMLP
 from bc4rl.bsac.policies import (
     BSACCnnPolicy,
     BSACMlpPolicy,
@@ -33,6 +30,9 @@ from bc4rl.bsac.policies import (
     BSACPolicy,
     FrozenActor,
 )
+from bc4rl.encoder import CustomCNN, CustomCombinedExtractor, CustomMLP
+from bc4rl.nn import SpectrallyNormalizedMLP
+from bc4rl.utils import preprocess_and_detach_obs
 
 SelfBSAC = TypeVar("SelfBSAC", bound="BSAC")
 
@@ -62,9 +62,7 @@ class BSAC(SAC):
         sac_lr: Union[float, Schedule] = 3e-4,
         bisim_lr: Union[str, float] = 3e-4,
         bisim_c: float = 0.5,
-        bisim_k: float = 1.0,
         bisim_use_q: bool = False,
-        bisim_grad_penalty: float = 1.0,
         features_extractor_class: Union[Type[BaseFeaturesExtractor], str] = CustomMLP,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         buffer_size: int = 1_000_000,
@@ -94,9 +92,7 @@ class BSAC(SAC):
         _init_setup_model: bool = True,
     ):
         self.bisim_c = bisim_c
-        self.bisim_k = bisim_k
         self.bisim_use_q = bisim_use_q
-        self.bisim_grad_penalty = bisim_grad_penalty
 
         policy_kwargs = policy_kwargs if policy_kwargs is not None else {}
         policy_kwargs["share_features_extractor"] = True
@@ -162,8 +158,7 @@ class BSAC(SAC):
         # Wasserstein critic estimation works better without momentum (see W-GAN paper), so we use
         # vanilla SGD
         self.bisim_critic_optimizer = optim.Adam(
-            self.bisim_critic.parameters(),
-            lr=float(bisim_lr),
+            self.bisim_critic.parameters(), lr=float(bisim_lr),
         )
 
     def make_bisim_critic(
@@ -173,7 +168,7 @@ class BSAC(SAC):
         act: Type[nn.Module] = nn.ReLU,
         ortho_init: bool = False,
     ) -> nn.Module:
-        return MLP(feature_dim, 1, net_arch, act, ortho_init)
+        return SpectrallyNormalizedMLP(feature_dim, 1, net_arch, act, ortho_init)
 
     def _create_aliases(self) -> None:
         super()._create_aliases()
@@ -181,10 +176,7 @@ class BSAC(SAC):
         self.encoder_optimizer = self.policy.encoder_optimizer
 
     def bisim_loss(
-        self,
-        replay_data: ReplayBufferSamples,
-        target: torch.Tensor,
-        n_samp: int = 128,
+        self, replay_data: ReplayBufferSamples, target: torch.Tensor, n_samp: int = 128,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         zs = self.encoder(
             preprocess_and_detach_obs(
@@ -208,7 +200,7 @@ class BSAC(SAC):
             create_graph=True,
             retain_graph=True,
         )[0]
-        grad_penalty = (critique_grad.norm(2, dim=1) - self.bisim_k).pow(2).mean()
+        grad_penalty = (critique_grad.norm(2, dim=1) - 1.0).pow(2).mean()
 
         # Randomly sample n_samp pairs of zs and critique
         assert n_samp <= zs.shape[0]
@@ -227,7 +219,7 @@ class BSAC(SAC):
         critique_distance = torch.abs(critique_i - critique_j)
         bisim_distance = (
             1 - self.bisim_c
-        ) * reward_distance + self.bisim_c / self.bisim_k * critique_distance
+        ) * reward_distance + self.bisim_c * critique_distance
         bisim_loss = F.mse_loss(encoded_distance, bisim_distance)
 
         return bisim_loss, grad_penalty
@@ -362,9 +354,8 @@ class BSAC(SAC):
             bisim_loss.backward(retain_graph=True)
             self.encoder_optimizer.step()
 
-            bisim_critic_loss = bisim_loss + self.bisim_grad_penalty * grad_penalty
             self.bisim_critic_optimizer.zero_grad()
-            bisim_critic_loss.backward()
+            bisim_loss.backward()
             self.bisim_critic_optimizer.step()
 
         self._n_updates += gradient_steps

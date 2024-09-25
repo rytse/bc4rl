@@ -1,4 +1,4 @@
-from bc4rl.encoder import CustomMLP, CustomCombinedExtractor
+from bc4rl.encoder import CustomCombinedExtractor, CustomMLP
 
 hyperparams = {
     "LunarLanderContinuous-v2": {
@@ -44,7 +44,11 @@ hyperparams = {
         "bisim_use_q": True,
         "bisim_grad_penalty": 1.0,
         "features_extractor_class": CustomMLP,
-        "features_extractor_kwargs": {"ortho_init": True, "features_dim": 32, "net_arch": [32]},
+        "features_extractor_kwargs": {
+            "ortho_init": True,
+            "features_dim": 32,
+            "net_arch": [32],
+        },
         "bisim_critic_kwargs": {"ortho_init": True},
         "policy_kwargs": {"log_std_init": -3, "net_arch": [400, 300]},
     },

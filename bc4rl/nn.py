@@ -2,6 +2,7 @@ from typing import List, Type
 
 import torch
 import torch.nn as nn
+from torch.nn.utils import spectral_norm
 
 
 class MLP(nn.Module):
@@ -27,22 +28,27 @@ class MLP(nn.Module):
         self.act = act
         self.ortho_init = ortho_init
 
-        layers = [self._get_linear(in_dim, net_arch[0]), act()]
+        layers = [self._get_layer(in_dim, net_arch[0]), act()]
         for i in range(1, len(net_arch)):
-            layers.append(self._get_linear(net_arch[i - 1], net_arch[i]))
+            layers.append(self._get_layer(net_arch[i - 1], net_arch[i]))
             layers.append(act())
-        layers.append(self._get_linear(net_arch[-1], out_dim))
+        layers.append(self._get_layer(net_arch[-1], out_dim))
 
         self.mlp = nn.Sequential(*layers)
 
-    def _get_linear(self, in_dim: int, out_dim: int) -> nn.Linear:
+    def _get_layer(self, in_dim: int, out_dim: int) -> nn.Linear:
         linear = nn.Linear(in_dim, out_dim)
         if self.ortho_init:
             nn.init.orthogonal_(
-                linear.weight,
-                int(nn.init.calculate_gain(self.act.__name__.lower())),
+                linear.weight, int(nn.init.calculate_gain(self.act.__name__.lower())),
             )
         return linear
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         return self.mlp(observations)
+
+
+class SpectrallyNormalizedMLP(MLP):
+    def _get_layer(self, in_dim: int, out_dim: int) -> nn.Linear:
+        linear = super()._get_layer(in_dim, out_dim)
+        return spectral_norm(linear)

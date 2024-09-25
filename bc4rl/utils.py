@@ -1,6 +1,6 @@
 import torch
-from stable_baselines3.common.type_aliases import PyTorchObs
 from stable_baselines3.common.preprocessing import preprocess_obs
+from stable_baselines3.common.type_aliases import PyTorchObs
 
 
 def preprocess_and_detach_obs(obs: PyTorchObs, space) -> PyTorchObs:

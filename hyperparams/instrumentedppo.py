@@ -36,7 +36,6 @@ hyperparams = {
         "policy_kwargs": {
             # "activation_fn": nn.ReLU,
             "share_features_extractor": True,
-            # "net_arch": [256, 128, 128],
             # "features_extractor_class": CustomCNN,
             # "features_extractor_kwargs": {"ortho_init": True},
         },
