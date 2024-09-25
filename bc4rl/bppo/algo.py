@@ -59,7 +59,9 @@ class BPPO(PPO):
         vf_coef: float = 0.5,
         max_grad_norm: float = 0.5,
         # bisim_weight=0.5,
-        bisim_weight=0.0,
+        # bisim_weight=0.0,
+        # bisim_weight=0.1,
+        bisim_weight=0.05,
         bisim_lr: Union[str, float] = 3e-4,
         bisim_c: float = 0.5,
         bisim_critic_kwargs: Optional[Union[Dict[str, Any], str]] = None,
@@ -255,7 +257,7 @@ class BPPO(PPO):
 
     def bisim_loss(
         self, rollout_data: RolloutReplayBufferSamples, n_samp: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
 
         if n_samp is None:
             n_samp = rollout_data.observations.shape[0]
@@ -286,8 +288,6 @@ class BPPO(PPO):
 
         zs_i = zs[idx_i]
         zs_j = zs[idx_j]
-        next_zs_i = next_zs[idx_i]
-        next_zs_j = next_zs[idx_j]
         critique_i = critique[idx_i]
         critique_j = critique[idx_j]
         # todo try using value function like in BSAC?
@@ -300,21 +300,8 @@ class BPPO(PPO):
         bisim_distance = (
             1 - self.bisim_c
         ) * reward_distance + self.bisim_c * critique_distance
-        bisim_loss = F.mse_loss(encoded_distance, bisim_distance)
 
-        # Check if bisim_critic has lipschitz constant of 1.0 by comparing random pairs of zs
-        # with their corresponding critiques
-        next_encoded_distance = torch.linalg.norm(
-            next_zs_i - next_zs_j, ord=1, dim=1
-        ).view(-1, 1)
-        valid_idxs = torch.isclose(
-            next_encoded_distance, torch.zeros_like(next_encoded_distance), atol=1e-6
-        ).logical_not()
-        lipschitz_const = (
-            critique_distance[valid_idxs] / next_encoded_distance[valid_idxs]
-        ).max()
-
-        return bisim_loss, lipschitz_const
+        return F.mse_loss(encoded_distance, bisim_distance)
 
     def train(self) -> None:
         """
@@ -332,7 +319,7 @@ class BPPO(PPO):
 
         entropy_losses = []
         pg_losses, value_losses = [], []
-        bisim_losses, lipschitz_consts = [], []
+        bisim_losses = []
         clip_fractions = []
 
         continue_training = True
@@ -427,9 +414,8 @@ class BPPO(PPO):
                     break
 
                 # Compute and log the components of bisim loss
-                bisim_loss, lipschitz_const = self.bisim_loss(rollout_data)
+                bisim_loss = self.bisim_loss(rollout_data)
                 bisim_losses.append(bisim_loss.item())
-                lipschitz_consts.append(lipschitz_const.item())
 
                 # Combine loss and update networks
                 loss = (
@@ -468,7 +454,6 @@ class BPPO(PPO):
         self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/bisim_loss", np.mean(bisim_losses))
-        self.logger.record("train/lipschitz_const", np.mean(lipschitz_consts))
         self.logger.record("train/loss", ppo_loss.item())
         self.logger.record("train/explained_variance", explained_var)
         if hasattr(self.policy, "log_std"):
@@ -717,7 +702,7 @@ class InstrumentedPPO(PPO):
 
     def bisim_loss(
         self, rollout_data: RolloutReplayBufferSamples, n_samp: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
 
         if n_samp is None:
             n_samp = rollout_data.observations.shape[0]
@@ -757,14 +742,7 @@ class InstrumentedPPO(PPO):
         ) * reward_distance + self.bisim_c * critique_distance
         bisim_loss = F.mse_loss(encoded_distance, bisim_distance)
 
-        # Check if bisim_critic has lipschitz constant of 1.0 by comparing random pairs of zs
-        # with their corresponding critiques
-        lipschitz_const = (
-            torch.linalg.norm(critique_i - critique_j, ord=1, dim=1)
-            / torch.linalg.norm(zs_i - zs_j, ord=1, dim=1)
-        ).max()
-
-        return bisim_loss, lipschitz_const
+        return bisim_loss
 
     def train(self) -> None:
         """
@@ -782,7 +760,7 @@ class InstrumentedPPO(PPO):
 
         entropy_losses = []
         pg_losses, value_losses = [], []
-        bisim_losses, lipschitz_consts = [], []
+        bisim_losses = []
         clip_fractions = []
 
         continue_training = True
@@ -885,9 +863,8 @@ class InstrumentedPPO(PPO):
                 self.policy.optimizer.step()
 
                 # Compute and log the components of bisim loss
-                bisim_loss, lipschitz_const = self.bisim_loss(rollout_data)
+                bisim_loss = self.bisim_loss(rollout_data)
                 bisim_losses.append(bisim_loss.item())
-                lipschitz_consts.append(lipschitz_const.item())
 
                 # self.encoder_optimizer.zero_grad()
                 self.bisim_critic_optimizer.zero_grad()
@@ -910,7 +887,6 @@ class InstrumentedPPO(PPO):
         self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/bisim_loss", np.mean(bisim_losses))
-        self.logger.record("train/lipschitz_const", np.mean(lipschitz_consts))
         self.logger.record("train/loss", ppo_loss.item())
         self.logger.record("train/explained_variance", explained_var)
         if hasattr(self.policy, "log_std"):
