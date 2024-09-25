@@ -7,7 +7,7 @@ from rl_zoo3 import ALGOS
 from rl_zoo3.exp_manager import ExperimentManager
 from rl_zoo3.hyperparams_opt import HYPERPARAMS_SAMPLER
 
-from bc4rl.bppo.algo import BPPO, InstrumentedPPO
+from bc4rl.bppo.algo import BPPO
 from bc4rl.bsac.algo import BSAC, CustomSAC
 from bc4rl.samplers import (
     custom_sample_ppo_params,
@@ -25,7 +25,6 @@ from bc4rl.samplers import (
 def main(algo: str, env: str, device: str, optimize_hyperparameters: bool, n_jobs: int):
     ALGOS["bsac"] = BSAC
     ALGOS["bppo"] = BPPO
-    ALGOS["instrumentedppo"] = InstrumentedPPO
     ALGOS["customsac"] = CustomSAC
     HYPERPARAMS_SAMPLER["bsac"] = sample_bsac_params
     HYPERPARAMS_SAMPLER["sac"] = custom_sample_sac_params
