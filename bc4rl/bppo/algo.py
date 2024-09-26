@@ -240,10 +240,10 @@ class BPPO(PPO):
         return SpectrallyNormalizedMLP(feature_dim, 1, net_arch, act, ortho_init)
 
     def bisim_loss(
-        self, rollout_data: RolloutReplayBufferSamples, n_samp: Optional[int] = None,
+        self, rollout_data: RolloutReplayBufferSamples, n_samp: Optional[int] = 256,
     ) -> torch.Tensor:
 
-        if n_samp is None:
+        if n_samp is None or n_samp > rollout_data.observations.shape[0]:
             n_samp = rollout_data.observations.shape[0]
 
         zs = self.encoder(
@@ -402,9 +402,7 @@ class BPPO(PPO):
                 bisim_losses.append(bisim_loss.item())
 
                 # Combine loss and update networks
-                loss = (
-                    1.0 - self.bisim_weight
-                ) * ppo_loss + self.bisim_weight * bisim_loss
+                loss = ppo_loss + self.bisim_weight * bisim_loss
                 self.policy.optimizer.zero_grad()
                 self.bisim_critic_optimizer.zero_grad()
                 loss.backward()
