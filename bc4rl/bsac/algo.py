@@ -158,7 +158,8 @@ class BSAC(SAC):
         # Wasserstein critic estimation works better without momentum (see W-GAN paper), so we use
         # vanilla SGD
         self.bisim_critic_optimizer = optim.Adam(
-            self.bisim_critic.parameters(), lr=float(bisim_lr),
+            self.bisim_critic.parameters(),
+            lr=float(bisim_lr),
         )
 
     def make_bisim_critic(
@@ -176,7 +177,10 @@ class BSAC(SAC):
         self.encoder_optimizer = self.policy.encoder_optimizer
 
     def bisim_loss(
-        self, replay_data: ReplayBufferSamples, target: torch.Tensor, n_samp: int = 128,
+        self,
+        replay_data: ReplayBufferSamples,
+        target: torch.Tensor,
+        n_samp: int = 128,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         zs = self.encoder(
             preprocess_and_detach_obs(

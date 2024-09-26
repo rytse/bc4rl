@@ -1,6 +1,7 @@
 from copy import deepcopy
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
+from torchviz import make_dot
 import numpy as np
 import torch
 import torch.nn as nn
@@ -115,7 +116,8 @@ class BPPO(PPO):
         # Wasserstein critic estimation works better without momentum (see W-GAN paper), so we use
         # vanilla SGD
         self.bisim_critic_optimizer = optim.Adam(
-            self.bisim_critic.parameters(), lr=float(bisim_lr),
+            self.bisim_critic.parameters(),
+            lr=float(bisim_lr),
         )
 
         self.encoder = self.policy.features_extractor
@@ -240,20 +242,24 @@ class BPPO(PPO):
         return SpectrallyNormalizedMLP(feature_dim, 1, net_arch, act, ortho_init)
 
     def bisim_loss(
-        self, rollout_data: RolloutReplayBufferSamples, n_samp: Optional[int] = 256,
-    ) -> torch.Tensor:
+        self,
+        rollout_data: RolloutReplayBufferSamples,
+        n_samp: Optional[int] = 256,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
 
         if n_samp is None or n_samp > rollout_data.observations.shape[0]:
             n_samp = rollout_data.observations.shape[0]
 
         zs = self.encoder(
             preprocess_and_detach_obs(
-                rollout_data.observations, self.observation_space,
+                rollout_data.observations,
+                self.observation_space,
             )
         )
         next_zs = self.target_encoder(
             preprocess_and_detach_obs(
-                rollout_data.next_observations, self.observation_space,
+                rollout_data.next_observations,
+                self.observation_space,
             )
         )
 
@@ -283,9 +289,23 @@ class BPPO(PPO):
         critique_distance = torch.abs(critique_i - critique_j)
         bisim_distance = (
             1 - self.bisim_c
-        ) * reward_distance + self.bisim_c * critique_distance
+        ) * reward_distance + self.bisim_c * critique_distance.clone()
 
-        return F.mse_loss(encoded_distance, bisim_distance)
+        bisim_policy_loss = F.mse_loss(encoded_distance, bisim_distance)
+        bisim_critic_loss = torch.linalg.norm(critique_distance)
+
+        return bisim_policy_loss, bisim_critic_loss
+
+    def update_target_encoder(self):
+        """
+        Update the target encoder using an EMA of the current encoder.
+        """
+        for target_param, param in zip(
+            self.target_encoder.parameters(), self.encoder.parameters()
+        ):
+            target_param.data.copy_(
+                self.bisim_tau * param.data + (1.0 - self.bisim_tau) * target_param.data
+            )
 
     def train(self) -> None:
         """
@@ -303,7 +323,7 @@ class BPPO(PPO):
 
         entropy_losses = []
         pg_losses, value_losses = [], []
-        bisim_losses = []
+        bisim_policy_losses, bisim_critic_losses = [], []
         clip_fractions = []
 
         continue_training = True
@@ -398,28 +418,30 @@ class BPPO(PPO):
                     break
 
                 # Compute and log the components of bisim loss
-                bisim_loss = self.bisim_loss(rollout_data)
-                bisim_losses.append(bisim_loss.item())
+                bisim_policy_loss, bisim_critic_loss = self.bisim_loss(rollout_data)
+                loss = ppo_loss + self.bisim_weight * bisim_policy_loss
 
-                # Combine loss and update networks
-                loss = ppo_loss + self.bisim_weight * bisim_loss
+                # Update bisim critic
+                # self.bisim_critic_optimizer.zero_grad()
+                # bisim_critic_loss.backward(retain_graph=True)
+                # print()
+                # print("bisim_critic_loss.grad")
+                # print(bisim_critic_loss.grad)
+                # print()
+                # self.bisim_critic_optimizer.step()
+                # self.update_target_encoder()
+
+                # Update policy, including encoder
                 self.policy.optimizer.zero_grad()
-                self.bisim_critic_optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(
                     self.policy.parameters(), self.max_grad_norm
                 )
                 self.policy.optimizer.step()
-                self.bisim_critic_optimizer.step()
 
-                # Update target encoder
-                for target_param, param in zip(
-                    self.target_encoder.parameters(), self.encoder.parameters()
-                ):
-                    target_param.data.copy_(
-                        self.bisim_tau * param.data
-                        + (1.0 - self.bisim_tau) * target_param.data
-                    )
+                # Log
+                bisim_policy_losses.append(bisim_policy_loss.item())
+                bisim_critic_losses.append(bisim_critic_loss.item())
 
             self._n_updates += 1
             if not continue_training:
@@ -435,8 +457,9 @@ class BPPO(PPO):
         self.logger.record("train/value_loss", np.mean(value_losses))
         self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))
-        self.logger.record("train/bisim_loss", np.mean(bisim_losses))
-        self.logger.record("train/loss", ppo_loss.item())
+        self.logger.record("train/bisim_policy_loss", np.mean(bisim_policy_losses))
+        self.logger.record("train/bisim_critic_loss", np.mean(bisim_critic_losses))
+        self.logger.record("train/loss", loss.item())
         self.logger.record("train/explained_variance", explained_var)
         if hasattr(self.policy, "log_std"):
             self.logger.record(

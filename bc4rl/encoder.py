@@ -56,12 +56,20 @@ class CustomCNN(BaseFeaturesExtractor):
         self.feature_dim = feature_dim
 
         convs = [
-            nn.Conv2d(observation_space.shape[0], num_filters, 3, stride=stride,),
+            nn.Conv2d(
+                observation_space.shape[0],
+                num_filters,
+                3,
+                stride=stride,
+            ),
             nn.ReLU(),
         ]
         for _ in range(depth):
             convs.extend(
-                [nn.Conv2d(num_filters, num_filters, 3, stride=1), nn.ReLU(),]
+                [
+                    nn.Conv2d(num_filters, num_filters, 3, stride=1),
+                    nn.ReLU(),
+                ]
             )
         self.convs = nn.Sequential(*convs, nn.Flatten())
 
@@ -110,7 +118,10 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
             if is_image_space(subspace, normalized_image):
                 extractor = CustomCNN(subspace, cnn_feature_dim, ortho_init=ortho_init)
                 if compile:
-                    extractor = torch.compile(extractor, mode="reduce-overhead",)
+                    extractor = torch.compile(
+                        extractor,
+                        mode="reduce-overhead",
+                    )
                 extractors[key] = extractor
                 total_concat_size += extractor.feature_dim
             else:

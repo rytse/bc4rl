@@ -40,7 +40,8 @@ class MLP(nn.Module):
         linear = nn.Linear(in_dim, out_dim)
         if self.ortho_init:
             nn.init.orthogonal_(
-                linear.weight, int(nn.init.calculate_gain(self.act.__name__.lower())),
+                linear.weight,
+                int(nn.init.calculate_gain(self.act.__name__.lower())),
             )
         return linear
 

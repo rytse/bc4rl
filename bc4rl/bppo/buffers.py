@@ -111,7 +111,9 @@ class RolloutReplayBuffer(RolloutBuffer):
         raise NotImplementedError
 
     def _get_samples_with_next_obs(
-        self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None,
+        self,
+        batch_inds: np.ndarray,
+        env: Optional[VecNormalize] = None,
     ) -> RolloutReplayBufferSamples:
 
         assert (
