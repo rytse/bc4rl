@@ -241,11 +241,11 @@ class BPPO(PPO):
     ) -> nn.Module:
         return SpectrallyNormalizedMLP(feature_dim, 1, net_arch, act, ortho_init)
 
-    def bisim_loss(
+    def bisim_policy_loss(
         self,
         rollout_data: RolloutReplayBufferSamples,
         n_samp: Optional[int] = 256,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
 
         if n_samp is None or n_samp > rollout_data.observations.shape[0]:
             n_samp = rollout_data.observations.shape[0]
@@ -272,7 +272,7 @@ class BPPO(PPO):
         critique = self.bisim_critic(next_zs)
 
         # Randomly sample n_samp pairs of zs and critique
-        assert n_samp <= zs.shape[0]
+        assert n_samp <= zs.shape[0]  # TODO no longer necessary
         idx_i = torch.randperm(zs.shape[0])[:n_samp]
         idx_j = torch.randperm(zs.shape[0])[:n_samp]
 
@@ -286,15 +286,33 @@ class BPPO(PPO):
 
         encoded_distance = torch.linalg.norm(zs_i - zs_j, ord=1, dim=1).view(-1, 1)
         reward_distance = torch.abs(target_i - target_j)
-        critique_distance = torch.abs(critique_i - critique_j)
+        critique_distance = torch.abs(critique_i - critique_j)  # SHOULD THIS BE L2??
         bisim_distance = (
             1 - self.bisim_c
         ) * reward_distance + self.bisim_c * critique_distance.clone()
 
-        bisim_policy_loss = F.mse_loss(encoded_distance, bisim_distance)
-        bisim_critic_loss = torch.linalg.norm(critique_distance)
+        return F.mse_loss(encoded_distance, bisim_distance)
 
-        return bisim_policy_loss, bisim_critic_loss
+    def bisim_critic_loss(
+        self, rollout_data: RolloutReplayBufferSamples, n_samp: Optional[int] = 256
+    ) -> torch.Tensor:
+        if n_samp is None or n_samp > rollout_data.observations.shape[0]:
+            n_samp = rollout_data.observations.shape[0]
+
+        next_zs = self.target_encoder(
+            preprocess_and_detach_obs(
+                rollout_data.next_observations,
+                self.observation_space,
+            )
+        ).detach()
+
+        critique = self.bisim_critic(next_zs)
+        idx_i = torch.randperm(next_zs.shape[0])[:n_samp]
+        idx_j = torch.randperm(next_zs.shape[0])[:n_samp]
+        critique_i = critique[idx_i]
+        critique_j = critique[idx_j]
+
+        return -F.mse_loss(critique_i, critique_j)  # sup, not inf
 
     def update_target_encoder(self):
         """
@@ -417,27 +435,22 @@ class BPPO(PPO):
                         )
                     break
 
-                # Compute and log the components of bisim loss
-                bisim_policy_loss, bisim_critic_loss = self.bisim_loss(rollout_data)
-                loss = ppo_loss + self.bisim_weight * bisim_policy_loss
-
-                # Update bisim critic
-                # self.bisim_critic_optimizer.zero_grad()
-                # bisim_critic_loss.backward(retain_graph=True)
-                # print()
-                # print("bisim_critic_loss.grad")
-                # print(bisim_critic_loss.grad)
-                # print()
-                # self.bisim_critic_optimizer.step()
-                # self.update_target_encoder()
-
                 # Update policy, including encoder
+                bisim_policy_loss = self.bisim_policy_loss(rollout_data)
+                loss = ppo_loss + self.bisim_weight * bisim_policy_loss
                 self.policy.optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(
                     self.policy.parameters(), self.max_grad_norm
                 )
                 self.policy.optimizer.step()
+
+                # Update bisim critic
+                bisim_critic_loss = self.bisim_critic_loss(rollout_data)
+                self.bisim_critic_optimizer.zero_grad()
+                bisim_critic_loss.backward()
+                self.bisim_critic_optimizer.step()
+                self.update_target_encoder()
 
                 # Log
                 bisim_policy_losses.append(bisim_policy_loss.item())
