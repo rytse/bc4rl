@@ -44,14 +44,10 @@ class BPPO(PPO):
         ent_coef: float = 0.0,
         vf_coef: float = 0.5,
         max_grad_norm: float = 0.5,
-        # bisim_weight=0.5,
-        # bisim_weight=0.0,
-        # bisim_weight=0.1,
-        bisim_weight=0.05,
+        bisim_weight=0.1,
         bisim_lr: Union[str, float] = 3e-4,
         bisim_c: float = 0.5,
         bisim_critic_kwargs: Optional[Union[Dict[str, Any], str]] = None,
-        bisim_stop_gradient: bool = True,
         bisim_tau: float = 0.005,
         use_sde: bool = False,
         sde_sample_freq: int = -1,
@@ -101,7 +97,6 @@ class BPPO(PPO):
         self.bisim_weight = bisim_weight
         self.bisim_lr = bisim_lr
         self.bisim_c = bisim_c
-        self.bisim_stop_gradient = bisim_stop_gradient
         self.bisim_tau = bisim_tau
 
         if isinstance(bisim_critic_kwargs, str):
@@ -134,7 +129,9 @@ class BPPO(PPO):
         rollout_buffer: RolloutBuffer,
         n_rollout_steps: int,
     ) -> bool:
-        """Equivalent to `OnPolicyAlgorithm.collect_rollouts` but with next_obs"""
+        """
+        Equivalent to `OnPolicyAlgorithm.collect_rollouts` but with `next_obs`
+        """
         assert self._last_obs is not None, "No previous observation was provided"
         # Switch to eval mode (this affects batch norm / dropout)
         self.policy.set_training_mode(False)
@@ -246,7 +243,11 @@ class BPPO(PPO):
         rollout_data: RolloutReplayBufferSamples,
         n_samp: Optional[int] = 256,
     ) -> torch.Tensor:
-
+        """
+        Compute the bisimulation loss, i.e. the difference between the bisimulation loss in the
+        original space and the L2 distance in the latent space, assuming the bisimulation critic
+        is the optimal "critic" in the Kantorovich-Rubinstein duality.
+        """
         if n_samp is None or n_samp > rollout_data.observations.shape[0]:
             n_samp = rollout_data.observations.shape[0]
 
@@ -261,18 +262,12 @@ class BPPO(PPO):
                 rollout_data.next_observations,
                 self.observation_space,
             )
-        )
-
-        # Inspired by Bridging State and History Representations, but maybe we don't really need
-        # to detach, because we're using *samples* of next_zs, not a prediction of next_zs?
-        if self.bisim_stop_gradient:
-            next_zs = next_zs.detach()
+        ).detach()
 
         target = rollout_data.rewards.float().detach().requires_grad_().view(-1, 1)
         critique = self.bisim_critic(next_zs)
 
         # Randomly sample n_samp pairs of zs and critique
-        assert n_samp <= zs.shape[0]  # TODO no longer necessary
         idx_i = torch.randperm(zs.shape[0])[:n_samp]
         idx_j = torch.randperm(zs.shape[0])[:n_samp]
 
@@ -280,8 +275,7 @@ class BPPO(PPO):
         zs_j = zs[idx_j]
         critique_i = critique[idx_i]
         critique_j = critique[idx_j]
-        # todo try using value function like in BSAC?
-        target_i = target[idx_i]
+        target_i = target[idx_i]  # todo try using value function like in BSAC?
         target_j = target[idx_j]
 
         encoded_distance = torch.linalg.norm(zs_i - zs_j, ord=1, dim=1).view(-1, 1)
@@ -296,6 +290,11 @@ class BPPO(PPO):
     def bisim_critic_loss(
         self, rollout_data: RolloutReplayBufferSamples, n_samp: Optional[int] = 256
     ) -> torch.Tensor:
+        """
+        Compute the bisimulation critic loss, i.e. to get the optimal "critic" in the
+        Kantorovich-Rubinstein duality to compute earth-mover's distance. Note this returns a
+        negative value because we want to maximize the critic, not minimize it.
+        """
         if n_samp is None or n_samp > rollout_data.observations.shape[0]:
             n_samp = rollout_data.observations.shape[0]
 
