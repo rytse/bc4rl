@@ -31,7 +31,7 @@ hyperparams = {
         "n_epochs": 4,
         "n_steps": 512,
         "n_timesteps": 10_000_000,
-        "bisim_weight": 0.0,
+        "bisim_weight": 0.005,
         "bisim_c": 0.75,
         "bisim_stop_gradient": True,
         "bisim_tau": 0.005,
