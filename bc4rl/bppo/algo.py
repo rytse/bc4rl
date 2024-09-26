@@ -1,10 +1,10 @@
 from copy import deepcopy
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from functools import reduce
+import math
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
-from torchviz import make_dot
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from gymnasium import spaces
@@ -18,7 +18,7 @@ from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.ppo import PPO
 
 from bc4rl.bppo.buffers import RolloutReplayBuffer, RolloutReplayBufferSamples
-from bc4rl.nn import SpectrallyNormalizedMLP
+from bc4rl.bppo.nn import BisimCritic
 from bc4rl.utils import preprocess_and_detach_obs
 
 SelfBPPO = TypeVar("SelfBPPO", bound="BPPO")
@@ -45,6 +45,7 @@ class BPPO(PPO):
         vf_coef: float = 0.5,
         max_grad_norm: float = 0.5,
         bisim_weight=0.1,
+        bisim_critic_train_iters: int = 10,
         bisim_lr: Union[str, float] = 3e-4,
         bisim_c: float = 0.5,
         bisim_critic_kwargs: Optional[Union[Dict[str, Any], str]] = None,
@@ -95,6 +96,7 @@ class BPPO(PPO):
         ), "Feature extractor must be shared"
 
         self.bisim_weight = bisim_weight
+        self.bisim_critic_train_iters = bisim_critic_train_iters
         self.bisim_lr = bisim_lr
         self.bisim_c = bisim_c
         self.bisim_tau = bisim_tau
@@ -104,8 +106,14 @@ class BPPO(PPO):
             assert isinstance(bisim_critic_kwargs, dict)
         elif bisim_critic_kwargs is None:
             bisim_critic_kwargs = {}
-        self.bisim_critic = self.make_bisim_critic(
-            self.policy.features_dim, **bisim_critic_kwargs
+
+        # TODO we're making assumptions about the structure of ActionSpace.
+        assert isinstance(self.action_space, spaces.Discrete)
+        assert isinstance(self.action_space.shape, tuple)
+        self.bisim_critic = BisimCritic(
+            self.policy.features_dim,
+            reduce(lambda a, b: a * b, self.action_space.shape, 1),
+            [128, 32],
         ).to(device)
 
         # Wasserstein critic estimation works better without momentum (see W-GAN paper), so we use
@@ -229,15 +237,6 @@ class BPPO(PPO):
 
         return True
 
-    def make_bisim_critic(
-        self,
-        feature_dim: int,
-        net_arch: List[int] = [8],
-        act: Type[nn.Module] = nn.ReLU,
-        ortho_init: bool = True,
-    ) -> nn.Module:
-        return SpectrallyNormalizedMLP(feature_dim, 1, net_arch, act, ortho_init)
-
     def bisim_policy_loss(
         self,
         rollout_data: RolloutReplayBufferSamples,
@@ -262,10 +261,11 @@ class BPPO(PPO):
                 rollout_data.next_observations,
                 self.observation_space,
             )
-        ).detach()
+        ).detach()  # TODO torch.no_grad?
+        actions = rollout_data.actions.detach()
 
         target = rollout_data.rewards.float().detach().requires_grad_().view(-1, 1)
-        critique = self.bisim_critic(next_zs)
+        critique = self.bisim_critic(next_zs, zs.detach(), actions)
 
         # Randomly sample n_samp pairs of zs and critique
         idx_i = torch.randperm(zs.shape[0])[:n_samp]
@@ -280,10 +280,14 @@ class BPPO(PPO):
 
         encoded_distance = torch.linalg.norm(zs_i - zs_j, ord=1, dim=1).view(-1, 1)
         reward_distance = torch.abs(target_i - target_j)
-        critique_distance = torch.abs(critique_i - critique_j)  # SHOULD THIS BE L2??
+
+        # TODO check if torch.abs is needed. If we learn conditional f optimally, it should always
+        # know to make the first argument larger than the second, getting the sign correct.
+        critique_distance = critique_i - critique_j
+
         bisim_distance = (
             1 - self.bisim_c
-        ) * reward_distance + self.bisim_c * critique_distance.clone()
+        ) * reward_distance + self.bisim_c * critique_distance
 
         return F.mse_loss(encoded_distance, bisim_distance)
 
@@ -298,20 +302,34 @@ class BPPO(PPO):
         if n_samp is None or n_samp > rollout_data.observations.shape[0]:
             n_samp = rollout_data.observations.shape[0]
 
+        # TODO torch.no_grad?
+        zs = self.encoder(
+            preprocess_and_detach_obs(
+                rollout_data.observations,
+                self.observation_space,
+            )
+        ).detach()  # note: this term is *not* detached in bisim_policy_loss
         next_zs = self.target_encoder(
             preprocess_and_detach_obs(
                 rollout_data.next_observations,
                 self.observation_space,
             )
         ).detach()
+        actions = rollout_data.actions.detach()
 
-        critique = self.bisim_critic(next_zs)
+        critique = self.bisim_critic(next_zs, zs.detach(), actions)
         idx_i = torch.randperm(next_zs.shape[0])[:n_samp]
         idx_j = torch.randperm(next_zs.shape[0])[:n_samp]
         critique_i = critique[idx_i]
         critique_j = critique[idx_j]
 
-        return -F.mse_loss(critique_i, critique_j)  # sup, not inf
+        critic_score = (
+            critique_i - critique_j
+        )  # want to make all elements large and positive
+
+        return torch.logsumexp(-critic_score, dim=0) + math.log(
+            1.0 / n_samp
+        )  # log mean exp
 
     def update_target_encoder(self):
         """
@@ -434,7 +452,15 @@ class BPPO(PPO):
                         )
                     break
 
-                # Update policy, including encoder
+                # Train the (conditional) bisim critic
+                for _ in range(self.bisim_critic_train_iters):
+                    bisim_critic_loss = self.bisim_critic_loss(rollout_data)
+                    self.bisim_critic_optimizer.zero_grad()
+                    bisim_critic_loss.backward()
+                    self.bisim_critic_optimizer.step()
+                    self.update_target_encoder()
+
+                # Update policy, including encoder, given the best estimate of the bisim critic
                 bisim_policy_loss = self.bisim_policy_loss(rollout_data)
                 loss = ppo_loss + self.bisim_weight * bisim_policy_loss
                 self.policy.optimizer.zero_grad()
@@ -443,13 +469,6 @@ class BPPO(PPO):
                     self.policy.parameters(), self.max_grad_norm
                 )
                 self.policy.optimizer.step()
-
-                # Update bisim critic
-                bisim_critic_loss = self.bisim_critic_loss(rollout_data)
-                self.bisim_critic_optimizer.zero_grad()
-                bisim_critic_loss.backward()
-                self.bisim_critic_optimizer.step()
-                self.update_target_encoder()
 
                 # Log
                 bisim_policy_losses.append(bisim_policy_loss.item())
