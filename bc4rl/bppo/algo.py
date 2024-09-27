@@ -110,17 +110,30 @@ class BPPO(PPO):
         # TODO we're making assumptions about the structure of ActionSpace.
         assert isinstance(self.action_space, spaces.Discrete)
         assert isinstance(self.action_space.shape, tuple)
-        self.bisim_critic = BisimCritic(
-            self.policy.features_dim,
-            reduce(lambda a, b: a * b, self.action_space.shape, 1),
-            [128, 32],
-        ).to(device)
+        self.bisim_critic = torch.compile(
+            BisimCritic(
+                self.policy.features_dim,
+                reduce(lambda a, b: a * b, self.action_space.shape, 1),
+                [128, 32],
+            ).to(device),
+            mode="reduce-overhead",
+        )
 
         # Wasserstein critic estimation works better without momentum (see W-GAN paper), so we use
         # vanilla SGD
         self.bisim_critic_optimizer = optim.Adam(
             self.bisim_critic.parameters(),
             lr=float(bisim_lr),
+        )
+
+        self.policy.features_extractor = torch.compile(
+            self.policy.features_extractor, mode="reduce-overhead"
+        )
+        self.policy.pi_features_extractor = torch.compile(
+            self.policy.pi_features_extractor, mode="reduce-overhead"
+        )
+        self.policy.vf_features_extractor = torch.compile(
+            self.policy.vf_features_extractor, mode="reduce-overhead"
         )
 
         self.encoder = self.policy.features_extractor
@@ -256,15 +269,16 @@ class BPPO(PPO):
                 self.observation_space,
             )
         )
-        next_zs = self.target_encoder(
-            preprocess_and_detach_obs(
-                rollout_data.next_observations,
-                self.observation_space,
-            )
-        ).detach()  # TODO torch.no_grad?
-        actions = rollout_data.actions.detach()
+        with torch.no_grad():
+            next_zs = self.target_encoder(
+                preprocess_and_detach_obs(
+                    rollout_data.next_observations,
+                    self.observation_space,
+                )
+            ).detach()  # TODO torch.no_grad?
+            actions = rollout_data.actions.detach()
 
-        target = rollout_data.rewards.float().detach().requires_grad_().view(-1, 1)
+        target = rollout_data.rewards.float().view(-1, 1)
         critique = self.bisim_critic(next_zs, zs.detach(), actions)
 
         # Randomly sample n_samp pairs of zs and critique
@@ -303,19 +317,20 @@ class BPPO(PPO):
             n_samp = rollout_data.observations.shape[0]
 
         # TODO torch.no_grad?
-        zs = self.encoder(
-            preprocess_and_detach_obs(
-                rollout_data.observations,
-                self.observation_space,
-            )
-        ).detach()  # note: this term is *not* detached in bisim_policy_loss
-        next_zs = self.target_encoder(
-            preprocess_and_detach_obs(
-                rollout_data.next_observations,
-                self.observation_space,
-            )
-        ).detach()
-        actions = rollout_data.actions.detach()
+        with torch.no_grad():
+            zs = self.encoder(
+                preprocess_and_detach_obs(
+                    rollout_data.observations,
+                    self.observation_space,
+                )
+            ).detach()  # note: this term is *not* detached in bisim_policy_loss
+            next_zs = self.target_encoder(
+                preprocess_and_detach_obs(
+                    rollout_data.next_observations,
+                    self.observation_space,
+                )
+            ).detach()
+            actions = rollout_data.actions.detach()
 
         critique = self.bisim_critic(next_zs, zs.detach(), actions)
         idx_i = torch.randperm(next_zs.shape[0])[:n_samp]
@@ -359,6 +374,7 @@ class BPPO(PPO):
         entropy_losses = []
         pg_losses, value_losses = [], []
         bisim_policy_losses, bisim_critic_losses = [], []
+        critic_loss_ranges = []
         clip_fractions = []
 
         continue_training = True
@@ -453,12 +469,20 @@ class BPPO(PPO):
                     break
 
                 # Train the (conditional) bisim critic
+                min_critic_loss = float("inf")
+                max_critic_loss = float("-inf")
                 for _ in range(self.bisim_critic_train_iters):
-                    bisim_critic_loss = self.bisim_critic_loss(rollout_data)
+                    bisim_critic_loss = self.bisim_critic_loss(rollout_data, None)
                     self.bisim_critic_optimizer.zero_grad()
                     bisim_critic_loss.backward()
+                    min_critic_loss = min(min_critic_loss, bisim_critic_loss.item())
+                    max_critic_loss = max(max_critic_loss, bisim_critic_loss.item())
                     self.bisim_critic_optimizer.step()
                     self.update_target_encoder()
+                critic_loss_range = abs(max_critic_loss - min_critic_loss) / (
+                    max_critic_loss + 1e-8
+                )
+                critic_loss_ranges.append(critic_loss_range)
 
                 # Update policy, including encoder, given the best estimate of the bisim critic
                 bisim_policy_loss = self.bisim_policy_loss(rollout_data)
@@ -490,6 +514,9 @@ class BPPO(PPO):
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/bisim_policy_loss", np.mean(bisim_policy_losses))
         self.logger.record("train/bisim_critic_loss", np.mean(bisim_critic_losses))
+        self.logger.record(
+            "train/critic_loss_range_percentage", np.max(critic_loss_ranges) * 100.0
+        )
         self.logger.record("train/loss", loss.item())
         self.logger.record("train/explained_variance", explained_var)
         if hasattr(self.policy, "log_std"):

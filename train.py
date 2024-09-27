@@ -56,6 +56,7 @@ def main(algo: str, env: str, device: str, optimize_hyperparameters: bool, n_job
         config=custom_hyperparam_path,
     )
 
+    torch.set_float32_matmul_precision("medium")
     torch.autograd.set_detect_anomaly(True)
 
     results = exp_manager.setup_experiment()
