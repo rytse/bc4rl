@@ -18,7 +18,7 @@ from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.ppo import PPO
 
 from bc4rl.bppo.buffers import RolloutReplayBuffer, RolloutReplayBufferSamples
-from bc4rl.bppo.nn import BisimCritic
+from bc4rl.bppo.nn import AntisymmetricNN
 from bc4rl.utils import preprocess_and_detach_obs
 
 SelfBPPO = TypeVar("SelfBPPO", bound="BPPO")
@@ -111,10 +111,11 @@ class BPPO(PPO):
         assert isinstance(self.action_space, spaces.Discrete)
         assert isinstance(self.action_space.shape, tuple)
         self.bisim_critic = torch.compile(
-            BisimCritic(
+            AntisymmetricNN(
+                self.policy.features_dim,
                 self.policy.features_dim,
                 reduce(lambda a, b: a * b, self.action_space.shape, 1),
-                [128, 32],
+                16,
             ).to(device),
             mode="reduce-overhead",
         )
@@ -124,16 +125,6 @@ class BPPO(PPO):
         self.bisim_critic_optimizer = optim.Adam(
             self.bisim_critic.parameters(),
             lr=float(bisim_lr),
-        )
-
-        self.policy.features_extractor = torch.compile(
-            self.policy.features_extractor, mode="reduce-overhead"
-        )
-        self.policy.pi_features_extractor = torch.compile(
-            self.policy.pi_features_extractor, mode="reduce-overhead"
-        )
-        self.policy.vf_features_extractor = torch.compile(
-            self.policy.vf_features_extractor, mode="reduce-overhead"
         )
 
         self.encoder = self.policy.features_extractor
@@ -277,9 +268,7 @@ class BPPO(PPO):
                 )
             ).detach()  # TODO torch.no_grad?
             actions = rollout_data.actions.detach()
-
         target = rollout_data.rewards.float().view(-1, 1)
-        critique = self.bisim_critic(next_zs, zs.detach(), actions)
 
         # Randomly sample n_samp pairs of zs and critique
         idx_i = torch.randperm(zs.shape[0])[:n_samp]
@@ -287,17 +276,20 @@ class BPPO(PPO):
 
         zs_i = zs[idx_i]
         zs_j = zs[idx_j]
-        critique_i = critique[idx_i]
-        critique_j = critique[idx_j]
         target_i = target[idx_i]  # todo try using value function like in BSAC?
         target_j = target[idx_j]
-
         encoded_distance = torch.linalg.norm(zs_i - zs_j, ord=1, dim=1).view(-1, 1)
         reward_distance = torch.abs(target_i - target_j)
 
-        # TODO check if torch.abs is needed. If we learn conditional f optimally, it should always
-        # know to make the first argument larger than the second, getting the sign correct.
-        critique_distance = critique_i - critique_j
+        next_zs_i = next_zs[idx_i]
+        next_zs_j = next_zs[idx_j]
+        act_i = actions[idx_i]
+        act_j = actions[idx_j]
+
+        critique_distance = torch.abs(
+            self.bisim_critic(next_zs_i, zs_i, act_i, zs_j, act_j)
+            - self.bisim_critic(next_zs_j, zs_i, act_i, zs_j, act_j)
+        ).view(-1, 1)
 
         bisim_distance = (
             1 - self.bisim_c
@@ -332,19 +324,20 @@ class BPPO(PPO):
             ).detach()
             actions = rollout_data.actions.detach()
 
-        critique = self.bisim_critic(next_zs, zs.detach(), actions)
         idx_i = torch.randperm(next_zs.shape[0])[:n_samp]
         idx_j = torch.randperm(next_zs.shape[0])[:n_samp]
-        critique_i = critique[idx_i]
-        critique_j = critique[idx_j]
+        zs_i = zs[idx_i]
+        zs_j = zs[idx_j]
+        next_zs_i = next_zs[idx_i]
+        next_zs_j = next_zs[idx_j]
+        act_i = actions[idx_i]
+        act_j = actions[idx_j]
 
-        critic_score = (
-            critique_i - critique_j
-        )  # want to make all elements large and positive
+        critique = self.bisim_critic(
+            next_zs_i, zs_i, act_i, zs_j, act_j
+        ) - self.bisim_critic(next_zs_j, zs_i, act_i, zs_j, act_j)
 
-        return torch.logsumexp(-critic_score, dim=0) + math.log(
-            1.0 / n_samp
-        )  # log mean exp
+        return -torch.mean(critique)
 
     def update_target_encoder(self):
         """
