@@ -3,6 +3,7 @@ from typing import List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.utils import spectral_norm
 
 from bc4rl.nn import SpectrallyNormalizedMLP
 
@@ -39,43 +40,39 @@ class BisimCritic(nn.Module):
 
 
 class AntisymmetricNN(nn.Module):
-    def __init__(self, k, n_s, n_a, d_model):
+    def __init__(self, k: int, n_s: int, n_a: int):
         super(AntisymmetricNN, self).__init__()
-        self.d_model = d_model
+        self.k = k
 
-        # Input encoding
         self.encode_z = nn.Sequential(
-            nn.Linear(k, d_model), nn.ReLU(), nn.Linear(d_model, d_model)
-        )
-
-        self.encode_s = nn.Sequential(
-            nn.Linear(n_s, d_model // 2),
+            spectral_norm(nn.Linear(k, k)),
             nn.ReLU(),
-            nn.Linear(d_model // 2, d_model // 2),
+            spectral_norm(nn.Linear(k, k)),
         )
-
-        self.encode_a = nn.Sequential(
-            nn.Linear(n_a, d_model // 2),
+        self.encode_sa = nn.Sequential(
+            nn.Linear(n_s + n_a, k),
             nn.ReLU(),
-            nn.Linear(d_model // 2, d_model // 2),
+            nn.Linear(k, k),
         )
-
-        # Final processing
         self.final_mlp = nn.Sequential(
-            nn.Linear(d_model, d_model), nn.ReLU(), nn.Linear(d_model, 1)
+            spectral_norm(nn.Linear(k, k)), nn.ReLU(), spectral_norm(nn.Linear(k, k))
         )
 
-    def forward(self, z, s_i, a_i, s_j, a_j):
-        # Input encoding
+    def forward(
+        self,
+        z: torch.Tensor,
+        s_i: torch.Tensor,
+        a_i: torch.Tensor,
+        s_j: torch.Tensor,
+        a_j: torch.Tensor,
+    ) -> torch.Tensor:
         z_encoded = self.encode_z(z)
 
-        # Encode and concatenate s and a for both i and j
-        u_encoded = torch.cat([self.encode_s(s_i), self.encode_a(a_i)], dim=-1)
-        v_encoded = torch.cat([self.encode_s(s_j), self.encode_a(a_j)], dim=-1)
+        u_encoded = self.encode_sa(torch.cat([s_i, a_i], dim=-1))
+        v_encoded = self.encode_sa(torch.cat([s_j, a_j], dim=-1))
 
-        # Attention-like mechanism
-        score_u = torch.sum(z_encoded * u_encoded, dim=-1) / (self.d_model**0.5)
-        score_v = torch.sum(z_encoded * v_encoded, dim=-1) / (self.d_model**0.5)
+        score_u = torch.sum(z_encoded * u_encoded, dim=-1) / (self.k**0.5)
+        score_v = torch.sum(z_encoded * v_encoded, dim=-1) / (self.k**0.5)
 
         # Apply softmax to get attention weights
         alpha_u, alpha_v = F.softmax(
@@ -85,7 +82,4 @@ class AntisymmetricNN(nn.Module):
         # Compute weighted difference
         diff = alpha_u.unsqueeze(-1) * u_encoded - alpha_v.unsqueeze(-1) * v_encoded
 
-        # Final processing
-        output = self.final_mlp(diff)
-
-        return output.squeeze(-1)
+        return self.final_mlp(diff)

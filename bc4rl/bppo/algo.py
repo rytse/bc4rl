@@ -1,6 +1,5 @@
 from copy import deepcopy
 from functools import reduce
-import math
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import numpy as np
@@ -110,15 +109,13 @@ class BPPO(PPO):
         # TODO we're making assumptions about the structure of ActionSpace.
         assert isinstance(self.action_space, spaces.Discrete)
         assert isinstance(self.action_space.shape, tuple)
-        self.bisim_critic = torch.compile(
-            AntisymmetricNN(
-                self.policy.features_dim,
-                self.policy.features_dim,
-                reduce(lambda a, b: a * b, self.action_space.shape, 1),
-                16,
-            ).to(device),
-            mode="reduce-overhead",
-        )
+        self.bisim_critic = AntisymmetricNN(
+            self.policy.features_dim,
+            self.policy.features_dim,
+            reduce(lambda a, b: a * b, self.action_space.shape, 1),
+        ).to(device)
+        if "cuda" in str(device):
+            self.bisim_critic = torch.compile(self.bisim_critic, mode="reduce-overhead")
 
         # Wasserstein critic estimation works better without momentum (see W-GAN paper), so we use
         # vanilla SGD
@@ -244,16 +241,12 @@ class BPPO(PPO):
     def bisim_policy_loss(
         self,
         rollout_data: RolloutReplayBufferSamples,
-        n_samp: Optional[int] = 256,
     ) -> torch.Tensor:
         """
         Compute the bisimulation loss, i.e. the difference between the bisimulation loss in the
         original space and the L2 distance in the latent space, assuming the bisimulation critic
         is the optimal "critic" in the Kantorovich-Rubinstein duality.
         """
-        if n_samp is None or n_samp > rollout_data.observations.shape[0]:
-            n_samp = rollout_data.observations.shape[0]
-
         zs = self.encoder(
             preprocess_and_detach_obs(
                 rollout_data.observations,
@@ -270,26 +263,25 @@ class BPPO(PPO):
             actions = rollout_data.actions.detach()
         target = rollout_data.rewards.float().view(-1, 1)
 
-        # Randomly sample n_samp pairs of zs and critique
-        idx_i = torch.randperm(zs.shape[0])[:n_samp]
-        idx_j = torch.randperm(zs.shape[0])[:n_samp]
-
+        idx_i = torch.randperm(zs.shape[0])
+        idx_j = torch.arange(0, zs.shape[0])
         zs_i = zs[idx_i]
         zs_j = zs[idx_j]
         target_i = target[idx_i]  # todo try using value function like in BSAC?
         target_j = target[idx_j]
-        encoded_distance = torch.linalg.norm(zs_i - zs_j, ord=1, dim=1).view(-1, 1)
-        reward_distance = torch.abs(target_i - target_j)
+        encoded_distance = F.smooth_l1_loss(zs_i, zs_j, reduction="none")
+        reward_distance = F.smooth_l1_loss(target_i, target_j, reduction="none")
 
         next_zs_i = next_zs[idx_i]
         next_zs_j = next_zs[idx_j]
         act_i = actions[idx_i]
         act_j = actions[idx_j]
 
-        critique_distance = torch.abs(
-            self.bisim_critic(next_zs_i, zs_i, act_i, zs_j, act_j)
-            - self.bisim_critic(next_zs_j, zs_i, act_i, zs_j, act_j)
-        ).view(-1, 1)
+        critique_distance = F.smooth_l1_loss(
+            self.bisim_critic(next_zs_i, zs_i, act_i, zs_j, act_j),
+            self.bisim_critic(next_zs_j, zs_i, act_i, zs_j, act_j),
+            reduction="none",
+        )
 
         bisim_distance = (
             1 - self.bisim_c
@@ -298,16 +290,13 @@ class BPPO(PPO):
         return F.mse_loss(encoded_distance, bisim_distance)
 
     def bisim_critic_loss(
-        self, rollout_data: RolloutReplayBufferSamples, n_samp: Optional[int] = 256
+        self, rollout_data: RolloutReplayBufferSamples
     ) -> torch.Tensor:
         """
         Compute the bisimulation critic loss, i.e. to get the optimal "critic" in the
         Kantorovich-Rubinstein duality to compute earth-mover's distance. Note this returns a
         negative value because we want to maximize the critic, not minimize it.
         """
-        if n_samp is None or n_samp > rollout_data.observations.shape[0]:
-            n_samp = rollout_data.observations.shape[0]
-
         # TODO torch.no_grad?
         with torch.no_grad():
             zs = self.encoder(
@@ -324,8 +313,8 @@ class BPPO(PPO):
             ).detach()
             actions = rollout_data.actions.detach()
 
-        idx_i = torch.randperm(next_zs.shape[0])[:n_samp]
-        idx_j = torch.randperm(next_zs.shape[0])[:n_samp]
+        idx_i = torch.randperm(zs.shape[0])
+        idx_j = torch.arange(0, zs.shape[0])
         zs_i = zs[idx_i]
         zs_j = zs[idx_j]
         next_zs_i = next_zs[idx_i]
@@ -465,7 +454,7 @@ class BPPO(PPO):
                 min_critic_loss = float("inf")
                 max_critic_loss = float("-inf")
                 for _ in range(self.bisim_critic_train_iters):
-                    bisim_critic_loss = self.bisim_critic_loss(rollout_data, None)
+                    bisim_critic_loss = self.bisim_critic_loss(rollout_data)
                     self.bisim_critic_optimizer.zero_grad()
                     bisim_critic_loss.backward()
                     min_critic_loss = min(min_critic_loss, bisim_critic_loss.item())
